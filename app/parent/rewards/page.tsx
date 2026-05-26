@@ -434,21 +434,14 @@ export default function RewardsPage() {
   return (
     <>
       <header className="sticky top-0 z-30 flex items-center justify-between border-b border-white/70 bg-white/90 px-4 py-3 shadow-sm backdrop-blur-sm sm:px-6">
-        <div className="flex items-center gap-2 lg:hidden">
-          <span className="text-xl">🐾</span>
-          <span className="text-base font-extrabold text-slate-800">
-            Pocket <span className="text-pink-500">Pets</span>
-          </span>
-        </div>
-        <div className="hidden lg:block">
-          <h1 className="text-xl font-black text-slate-900">Rewards</h1>
-          {lastAction ? (
-            <p className="text-xs font-semibold text-slate-400">Last: {lastAction}</p>
-          ) : (
-            <p className="text-xs font-semibold text-slate-400">
-              Give quick rewards and adjust family reward buttons.
+        <div className="flex items-center gap-2.5">
+          <span className="text-xl lg:hidden">🎁</span>
+          <div>
+            <h1 className="text-base font-extrabold text-slate-900 lg:text-lg">Rewards</h1>
+            <p className="hidden lg:block text-xs text-slate-400">
+              {lastAction ? `Last: ${lastAction}` : 'Give quick rewards and adjust family reward buttons.'}
             </p>
-          )}
+          </div>
         </div>
         <Link href="/">
           <button

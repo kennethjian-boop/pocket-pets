@@ -166,19 +166,14 @@ export default function ScreenEnergyPage() {
     <>
       {/* Header */}
       <header className="sticky top-0 z-30 flex items-center justify-between border-b border-white/70 bg-white/90 px-6 py-4 shadow-sm backdrop-blur-sm">
-        <div className="flex items-center gap-2 lg:hidden">
-          <span className="text-xl">🐾</span>
-          <span className="text-base font-extrabold text-slate-800">
-            Pocket <span className="text-pink-500">Pets</span>
-          </span>
-        </div>
-        <div className="hidden lg:block">
-          <h1 className="text-lg font-extrabold text-slate-900">Screen Energy</h1>
-          {lastAction ? (
-            <p className="text-xs text-slate-400">Last: {lastAction}</p>
-          ) : (
-            <p className="text-xs text-slate-400">Manage weekend screen time for each child</p>
-          )}
+        <div className="flex items-center gap-2.5">
+          <span className="text-xl lg:hidden">📱</span>
+          <div>
+            <h1 className="text-base font-extrabold text-slate-900 lg:text-lg">Screen Energy</h1>
+            <p className="hidden lg:block text-xs text-slate-400">
+              {lastAction ? `Last: ${lastAction}` : 'Manage weekend screen time for each child'}
+            </p>
+          </div>
         </div>
         <Link href="/">
           <button
