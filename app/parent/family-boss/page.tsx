@@ -23,6 +23,7 @@ import {
 } from '@/lib/boss-battle';
 import {
   buildDashboardStates,
+  buildDashboardStatesFromSupabase,
   cardStyle,
   feedbackClass,
   panelHighlightClass,
@@ -161,7 +162,7 @@ export default function FamilyBossPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const hydrated = buildDashboardStates(true);
+      void buildDashboardStatesFromSupabase().then((hydrated) => {
       const storedBoss = applyRewardDefaults(readBossBattleState(), mockChildren);
       setDashboardStates(hydrated);
       setBossState(storedBoss);
@@ -171,6 +172,7 @@ export default function FamilyBossPage() {
           return { ...child, stars: s.stars, hearts: s.hearts, screenEnergy: s.screenEnergy };
         })
       );
+      });
     }, 0);
     return () => window.clearTimeout(timer);
   }, [setDashboardStates]);

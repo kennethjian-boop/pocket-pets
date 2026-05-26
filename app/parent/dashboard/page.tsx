@@ -17,6 +17,7 @@ import {
 import { formatWeekendScreenTime } from '@/lib/screen-energy';
 import {
   buildDashboardStates,
+  buildDashboardStatesFromSupabase,
   buildGoalsByChild,
   cardStyle,
   DashboardStateByChild,
@@ -35,7 +36,7 @@ export default function OverviewPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const hydrated = buildDashboardStates(true);
+      void buildDashboardStatesFromSupabase().then((hydrated) => {
       const hydratedGoals = buildGoalsByChild(true);
       setDashboardStates(hydrated);
       setGoalsByChild(hydratedGoals);
@@ -46,6 +47,7 @@ export default function OverviewPage() {
           return { ...child, stars: s.stars, hearts: s.hearts, screenEnergy: s.screenEnergy };
         })
       );
+      });
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);

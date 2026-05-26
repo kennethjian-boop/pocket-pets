@@ -9,6 +9,7 @@ import { ChildPageFrame } from '@/app/child/_components/ChildSidebar';
 import {
   SkinId,
   PetType,
+  hydrateChildDashboardStateFromSupabase,
   mergeWithDefaultChildState,
   SecretEggState,
   createSecretEgg,
@@ -42,8 +43,9 @@ export default function RewardShop() {
   useEffect(() => {
     if (!child) return;
 
-    const hydrateTimer = window.setTimeout(() => {
-      const stored = mergeWithDefaultChildState(child, readChildDashboardState(child.id));
+    const applyDashboardState = (
+      stored: ReturnType<typeof mergeWithDefaultChildState>
+    ) => {
       setStars(stored.stars);
       setScreenEnergy(stored.screenEnergy);
       setOwnedSkins(stored.ownedSkins);
@@ -56,6 +58,12 @@ export default function RewardShop() {
         window.setTimeout(() => setMessage(null), 2000);
       }
       setDashboardLoaded(true);
+    };
+
+    const hydrateTimer = window.setTimeout(() => {
+      const stored = mergeWithDefaultChildState(child, readChildDashboardState(child.id));
+      applyDashboardState(stored);
+      void hydrateChildDashboardStateFromSupabase(child.id, child).then(applyDashboardState);
     }, 0);
 
     return () => window.clearTimeout(hydrateTimer);

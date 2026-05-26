@@ -1,6 +1,12 @@
 import { PET_ROSTER, getPetByChildId, type Child, type PetRosterItem } from '@/lib/mock-data';
 import { normalizeScreenEnergy } from '@/lib/screen-energy';
 import { SKIN_ROSTER, VALID_SKIN_IDS, type PetType, type SkinId } from '@/lib/pet-skins';
+import {
+  fetchChildState,
+  mergeSupabaseChildState,
+  type SupabaseChildState,
+  upsertChildStateFromDashboard,
+} from '@/lib/supabase-child-state';
 
 export type CompletedMissions = Record<string, boolean>;
 export type CareActionType = 'feed' | 'pat' | 'clean';
@@ -391,6 +397,64 @@ export const clampComfort = (comfort: number) => Math.max(0, Math.min(100, comfo
 export const getChildDashboardStorageKey = (childId: string) =>
   `child-dashboard-state-${childId}`;
 
+export type ChildSupabaseSyncSource =
+  | 'supabase'
+  | 'local-seeded-supabase'
+  | 'local-fallback'
+  | 'supabase-write'
+  | 'supabase-skipped-stale-local';
+
+export interface ChildSupabaseSyncMeta {
+  migratedToSupabase: boolean;
+  lastRemoteUpdatedAt: string | null;
+  lastLocalWriteAt: string | null;
+  lastSupabaseWriteAt: string | null;
+  lastSyncSource: ChildSupabaseSyncSource;
+  lastSyncError: string | null;
+}
+
+const getDefaultChildSupabaseSyncMeta = (): ChildSupabaseSyncMeta => ({
+  migratedToSupabase: false,
+  lastRemoteUpdatedAt: null,
+  lastLocalWriteAt: null,
+  lastSupabaseWriteAt: null,
+  lastSyncSource: 'local-fallback',
+  lastSyncError: null,
+});
+
+export const getChildSupabaseSyncMetaStorageKey = (childId: string) =>
+  `pocket-pets-sync-meta-${childId}`;
+
+export function readChildSupabaseSyncMeta(childId: string): ChildSupabaseSyncMeta {
+  if (typeof window === 'undefined') return getDefaultChildSupabaseSyncMeta();
+
+  try {
+    const stored = window.localStorage.getItem(getChildSupabaseSyncMetaStorageKey(childId));
+    return stored
+      ? { ...getDefaultChildSupabaseSyncMeta(), ...JSON.parse(stored) }
+      : getDefaultChildSupabaseSyncMeta();
+  } catch {
+    return getDefaultChildSupabaseSyncMeta();
+  }
+}
+
+export function writeChildSupabaseSyncMeta(
+  childId: string,
+  updates: Partial<ChildSupabaseSyncMeta>
+) {
+  if (typeof window === 'undefined') return getDefaultChildSupabaseSyncMeta();
+
+  const nextMeta = {
+    ...readChildSupabaseSyncMeta(childId),
+    ...updates,
+  };
+  window.localStorage.setItem(
+    getChildSupabaseSyncMetaStorageKey(childId),
+    JSON.stringify(nextMeta)
+  );
+  return nextMeta;
+}
+
 export const getDailyGoalsStorageKey = () => DAILY_GOALS_STORAGE_KEY;
 export const getGoalSetupStorageKey = () => GOAL_SETUP_STORAGE_KEY;
 
@@ -662,6 +726,111 @@ export function writeChildDashboardState(
 ) {
   if (typeof window === 'undefined') return;
   window.localStorage.setItem(getChildDashboardStorageKey(childId), JSON.stringify(state));
+  writeChildSupabaseSyncMeta(childId, { lastLocalWriteAt: new Date().toISOString() });
+}
+
+const lastSupabaseMirrorByChild = new Map<string, string>();
+
+function getSharedStateMirrorKey(state: Partial<ChildDashboardState>) {
+  return JSON.stringify({
+    stars: state.stars,
+    hearts: state.hearts,
+    screenEnergy: state.screenEnergy,
+    activePetId: state.activePetId ?? state.activePetType,
+    activeSkins: state.activeSkins,
+  });
+}
+
+function mirrorChildDashboardStateToSupabase(
+  childId: string,
+  child: Child,
+  state: ChildDashboardState
+) {
+  if (typeof window === 'undefined') return;
+
+  const mirrorKey = getSharedStateMirrorKey(state);
+  if (lastSupabaseMirrorByChild.get(childId) === mirrorKey) return;
+  lastSupabaseMirrorByChild.set(childId, mirrorKey);
+
+  void upsertChildStateFromDashboard(child, state)
+    .then((remoteState) => {
+      if (!remoteState) {
+        writeChildSupabaseSyncMeta(childId, {
+          lastSyncSource: 'local-fallback',
+          lastSyncError: 'Supabase write skipped or unavailable.',
+        });
+        return;
+      }
+
+      writeChildSupabaseSyncMeta(childId, {
+        migratedToSupabase: true,
+        lastRemoteUpdatedAt: remoteState.updatedAt,
+        lastSupabaseWriteAt: new Date().toISOString(),
+        lastSyncSource: 'supabase-write',
+        lastSyncError: null,
+      });
+    })
+    .catch((error) => {
+      const message = error instanceof Error ? error.message : 'Unknown Supabase write error.';
+      writeChildSupabaseSyncMeta(childId, {
+        lastSyncSource: 'local-fallback',
+        lastSyncError: message,
+      });
+      console.warn('Failed to mirror child state to Supabase.', error);
+    });
+}
+
+function isRemoteAtMockDefault(child: Child, remoteState: SupabaseChildState) {
+  const defaultPet = getPetByChildId(child.id)?.pet ?? 'bubbo';
+  return (
+    remoteState.stars === child.stars &&
+    remoteState.hearts === child.hearts &&
+    remoteState.screenEnergy === child.screenEnergy &&
+    remoteState.equippedPet === defaultPet &&
+    Object.values(remoteState.equippedSkinByPet).every((skinId) => skinId === null)
+  );
+}
+
+export async function hydrateChildDashboardStateFromSupabase(
+  childId: string,
+  child: Child
+) {
+  const storedState = readChildDashboardState(childId);
+  const localState = mergeWithDefaultChildState(child, storedState);
+  const syncMeta = readChildSupabaseSyncMeta(childId);
+  const remoteState = await fetchChildState(child);
+
+  if (!remoteState) {
+    writeChildSupabaseSyncMeta(childId, {
+      lastSyncSource: 'local-fallback',
+      lastSyncError: 'Supabase fetch unavailable. Using localStorage.',
+    });
+    return localState;
+  }
+
+  if (storedState && !syncMeta.migratedToSupabase && isRemoteAtMockDefault(child, remoteState)) {
+    mirrorChildDashboardStateToSupabase(childId, child, localState);
+    writeChildSupabaseSyncMeta(childId, {
+      migratedToSupabase: true,
+      lastRemoteUpdatedAt: remoteState.updatedAt,
+      lastSyncSource: 'local-seeded-supabase',
+      lastSyncError: null,
+    });
+    return localState;
+  }
+
+  const mergedState = mergeSupabaseChildState(localState, remoteState);
+  writeChildDashboardState(childId, mergedState);
+  lastSupabaseMirrorByChild.set(childId, getSharedStateMirrorKey(mergedState));
+  writeChildSupabaseSyncMeta(childId, {
+    migratedToSupabase: true,
+    lastRemoteUpdatedAt: remoteState.updatedAt,
+    lastSyncSource: storedState && !syncMeta.migratedToSupabase
+      ? 'supabase-skipped-stale-local'
+      : 'supabase',
+    lastSyncError: null,
+  });
+  return mergedState;
 }
 
 export function mergeWithDefaultChildState(
@@ -745,6 +914,7 @@ export function saveChildDashboardState(
     goalsDate: updates.goalsDate ?? current.goalsDate,
   };
   writeChildDashboardState(childId, nextState);
+  mirrorChildDashboardStateToSupabase(childId, child, nextState);
   return nextState;
 }
 
@@ -773,6 +943,7 @@ export function setMissionCompletion(
   );
   const nextState = { ...current, completedMissions, stars, comfort };
   writeChildDashboardState(childId, nextState);
+  mirrorChildDashboardStateToSupabase(childId, child, nextState);
   return nextState;
 }
 

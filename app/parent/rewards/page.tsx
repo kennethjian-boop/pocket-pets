@@ -16,6 +16,7 @@ import {
 import { saveChildDashboardState } from '@/lib/mission-state';
 import {
   buildDashboardStates,
+  buildDashboardStatesFromSupabase,
   cardStyle,
   feedbackClass,
   loadSavedRewardTemplates,
@@ -234,7 +235,7 @@ export default function RewardsPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const hydrated = buildDashboardStates(true);
+      void buildDashboardStatesFromSupabase().then((hydrated) => {
       setDashboardStates(hydrated);
       setRewardTemplates(loadSavedRewardTemplates());
       setChildrenData((cur) =>
@@ -243,6 +244,7 @@ export default function RewardsPage() {
           return { ...child, stars: s.stars, hearts: s.hearts, screenEnergy: s.screenEnergy };
         })
       );
+      });
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);

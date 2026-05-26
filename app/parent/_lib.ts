@@ -6,6 +6,7 @@ import {
   dailyMissionTemplates,
   getDailyGoalsForChild,
   getGoalSetupMode,
+  hydrateChildDashboardStateFromSupabase,
   mergeWithDefaultChildState,
   readChildDashboardState,
 } from '@/lib/mission-state';
@@ -37,6 +38,17 @@ export function buildDashboardStates(readStored: boolean): DashboardStateByChild
       ),
     ])
   );
+}
+
+export async function buildDashboardStatesFromSupabase(): Promise<DashboardStateByChild> {
+  const entries = await Promise.all(
+    mockChildren.map(async (child) => [
+      child.id,
+      await hydrateChildDashboardStateFromSupabase(child.id, child),
+    ] as const)
+  );
+
+  return Object.fromEntries(entries);
 }
 
 export function buildGoalsByChild(readStored: boolean): GoalsByChild {

@@ -28,6 +28,7 @@ import {
 } from '@/lib/boss-battle';
 import {
   buildDashboardStates,
+  buildDashboardStatesFromSupabase,
   buildGoalsByChild,
   buildGoalModes,
   cardStyle,
@@ -76,7 +77,7 @@ export default function GoalsPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const hydrated = buildDashboardStates(true);
+      void buildDashboardStatesFromSupabase().then((hydrated) => {
       const hydratedGoals = buildGoalsByChild(true);
       const hydratedModes = buildGoalModes(true);
       setDashboardStates(hydrated);
@@ -96,6 +97,7 @@ export default function GoalsPage() {
           return { ...child, stars: s.stars, hearts: s.hearts, screenEnergy: s.screenEnergy };
         })
       );
+      });
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);

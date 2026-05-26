@@ -9,6 +9,7 @@ import { ChildPageFrame } from '@/app/child/_components/ChildSidebar';
 import { getChild, PET_ROSTER } from '@/lib/mock-data';
 import {
   clampStars,
+  hydrateChildDashboardStateFromSupabase,
   mergeWithDefaultChildState,
   readChildDashboardState,
   saveChildDashboardState,
@@ -125,6 +126,7 @@ export default function PetCatchGamePage() {
     };
 
     syncState();
+    void hydrateChildDashboardStateFromSupabase(childId, child).then(setDashboardState);
     const refreshTimer = window.setInterval(syncState, 1000);
 
     return () => window.clearInterval(refreshTimer);

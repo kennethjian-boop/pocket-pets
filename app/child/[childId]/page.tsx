@@ -21,6 +21,7 @@ import {
   getDefaultDailyActionCounts,
   getDefaultLastActionTimestamps,
   getTodayKey,
+  hydrateChildDashboardStateFromSupabase,
   mergeWithDefaultChildState,
   readChildDashboardState,
   saveChildDashboardState,
@@ -171,8 +172,9 @@ export default function ChildHome() {
   useEffect(() => {
     if (!child) return;
 
-    const syncFromStorage = () => {
-      const parsed = mergeWithDefaultChildState(child, readChildDashboardState(childId));
+    const applyDashboardState = (
+      parsed: ReturnType<typeof mergeWithDefaultChildState>
+    ) => {
       setMissionTemplates(getDailyGoalsForChild(childId));
       setStars(parsed.stars);
       setHearts(parsed.hearts);
@@ -191,7 +193,12 @@ export default function ChildHome() {
       setDashboardLoaded(true);
     };
 
+    const syncFromStorage = () => {
+      applyDashboardState(mergeWithDefaultChildState(child, readChildDashboardState(childId)));
+    };
+
     syncFromStorage();
+    void hydrateChildDashboardStateFromSupabase(childId, child).then(applyDashboardState);
 
     const handleStorage = (event: StorageEvent) => {
       if (
