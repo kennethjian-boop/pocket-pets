@@ -8,7 +8,9 @@ import {
   type SkinId,
 } from '@/lib/pet-skins';
 import { normalizeScreenEnergy } from '@/lib/screen-energy';
-import type { ChildDashboardState } from '@/lib/mission-state';
+import type { ChildDashboardState, SecretEggState } from '@/lib/mission-state';
+
+// ─── Public types ────────────────────────────────────────────────────────────
 
 export type SupabaseChildState = {
   childId: string;
@@ -18,8 +20,14 @@ export type SupabaseChildState = {
   screenEnergy: number;
   equippedPet: PetRosterItem['id'];
   equippedSkinByPet: Record<PetType, SkinId | null>;
+  // Phase 2
+  ownedPets: PetRosterItem['id'][];
+  ownedSkins: SkinId[];
+  secretEggState: SecretEggState | null;
   updatedAt: string;
 };
+
+// ─── DB row shape ────────────────────────────────────────────────────────────
 
 type ChildrenRow = {
   child_id: string;
@@ -29,6 +37,10 @@ type ChildrenRow = {
   screen_energy: number;
   equipped_pet: string;
   equipped_skin_by_pet: Record<string, unknown> | null;
+  // Phase 2
+  owned_pets: unknown[] | null;
+  owned_skins: unknown[] | null;
+  secret_egg_state: Record<string, unknown> | null;
   updated_at: string;
 };
 
@@ -36,34 +48,86 @@ type CurrencyUpdate = Partial<
   Pick<SupabaseChildState, 'stars' | 'hearts' | 'screenEnergy'>
 >;
 
+// ─── Constants ───────────────────────────────────────────────────────────────
+
 const VALID_PETS = new Set<PetRosterItem['id']>(['luna', 'bubbo', 'mochi', 'ember']);
+
+// Single source of truth for the SELECT column list — update here to add columns.
+const SELECT_COLUMNS =
+  'child_id, display_name, stars, hearts, screen_energy, equipped_pet, equipped_skin_by_pet, owned_pets, owned_skins, secret_egg_state, updated_at';
+
+// ─── Normalizers ─────────────────────────────────────────────────────────────
 
 function normalizePet(value: unknown, fallback: PetRosterItem['id']): PetRosterItem['id'] {
   return typeof value === 'string' && VALID_PETS.has(value as PetRosterItem['id'])
-    ? value as PetRosterItem['id']
+    ? (value as PetRosterItem['id'])
     : fallback;
 }
 
 function normalizeActiveSkins(value: unknown): Record<PetType, SkinId | null> {
-  const activeSkins: Record<PetType, SkinId | null> = {
+  const result: Record<PetType, SkinId | null> = {
     luna: null,
     bubbo: null,
     mochi: null,
     ember: null,
   };
-
-  if (!value || typeof value !== 'object') return activeSkins;
-
-  for (const petType of Object.keys(activeSkins) as PetType[]) {
+  if (!value || typeof value !== 'object') return result;
+  for (const petType of Object.keys(result) as PetType[]) {
     const skinId = (value as Record<string, unknown>)[petType];
-    activeSkins[petType] =
-      typeof skinId === 'string' && VALID_SKIN_IDS.has(skinId)
-        ? skinId as SkinId
-        : null;
+    if (typeof skinId === 'string' && VALID_SKIN_IDS.has(skinId)) {
+      result[petType] = skinId as SkinId;
+    }
   }
-
-  return activeSkins;
+  return result;
 }
+
+function normalizeOwnedPets(
+  value: unknown,
+  fallbackPet: PetRosterItem['id']
+): PetRosterItem['id'][] {
+  if (!Array.isArray(value)) return [fallbackPet];
+  const valid = value.filter(
+    (pet): pet is PetRosterItem['id'] =>
+      typeof pet === 'string' && VALID_PETS.has(pet as PetRosterItem['id'])
+  );
+  return Array.from(new Set([fallbackPet, ...valid]));
+}
+
+function normalizeOwnedSkinsArray(value: unknown): SkinId[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value.filter(
+        (item): item is SkinId =>
+          typeof item === 'string' && VALID_SKIN_IDS.has(item)
+      )
+    )
+  );
+}
+
+function normalizeSecretEggState(value: unknown): SecretEggState | null {
+  if (!value || typeof value !== 'object') return null;
+  const egg = value as Record<string, unknown>;
+  if (egg.type !== 'secret-egg') return null;
+
+  return {
+    id: typeof egg.id === 'string' ? egg.id : `secret-egg-${Date.now()}`,
+    type: 'secret-egg',
+    progress: typeof egg.progress === 'number' ? Math.max(0, egg.progress) : 0,
+    requiredGoals: typeof egg.requiredGoals === 'number' ? egg.requiredGoals : 10,
+    contributedGoalIds: Array.isArray(egg.contributedGoalIds)
+      ? egg.contributedGoalIds.filter((id): id is string => typeof id === 'string')
+      : [],
+    hatched: egg.hatched === true,
+    unlockedPetId:
+      typeof egg.unlockedPetId === 'string' &&
+      VALID_PETS.has(egg.unlockedPetId as PetRosterItem['id'])
+        ? (egg.unlockedPetId as PetRosterItem['id'])
+        : null,
+  };
+}
+
+// ─── Row <→ domain mappers ────────────────────────────────────────────────────
 
 function toSupabaseChildState(row: ChildrenRow, child: Child): SupabaseChildState {
   const fallbackPet = getPetByChildId(child.id)?.pet ?? 'bubbo';
@@ -76,6 +140,9 @@ function toSupabaseChildState(row: ChildrenRow, child: Child): SupabaseChildStat
     screenEnergy: normalizeScreenEnergy(row.screen_energy ?? child.screenEnergy),
     equippedPet: normalizePet(row.equipped_pet, fallbackPet),
     equippedSkinByPet: normalizeActiveSkins(row.equipped_skin_by_pet),
+    ownedPets: normalizeOwnedPets(row.owned_pets, fallbackPet),
+    ownedSkins: normalizeOwnedSkinsArray(row.owned_skins),
+    secretEggState: normalizeSecretEggState(row.secret_egg_state),
     updatedAt: row.updated_at,
   };
 }
@@ -93,8 +160,13 @@ function toChildrenUpsert(child: Child, state: Partial<ChildDashboardState>) {
     screen_energy: normalizeScreenEnergy(state.screenEnergy ?? child.screenEnergy),
     equipped_pet: equippedPet,
     equipped_skin_by_pet: activeSkins,
+    owned_pets: state.unlockedPets ?? [fallbackPet],
+    owned_skins: state.ownedSkins ?? [],
+    secret_egg_state: state.activeEgg ?? null,
   };
 }
+
+// ─── Merge helper (used by mission-state hydration) ──────────────────────────
 
 export function mergeSupabaseChildState(
   localState: ChildDashboardState,
@@ -102,6 +174,7 @@ export function mergeSupabaseChildState(
 ): ChildDashboardState {
   return {
     ...localState,
+    // Phase 1 fields
     stars: remoteState.stars,
     hearts: remoteState.hearts,
     screenEnergy: remoteState.screenEnergy,
@@ -111,8 +184,15 @@ export function mergeSupabaseChildState(
       ...localState.activeSkins,
       ...remoteState.equippedSkinByPet,
     },
+    // Phase 2 fields
+    unlockedPets: remoteState.ownedPets,
+    ownedSkins: remoteState.ownedSkins,
+    // Prefer remote egg; fall back to local if remote has none (race condition guard)
+    activeEgg: remoteState.secretEggState ?? localState.activeEgg,
   };
 }
+
+// ─── Fetch ───────────────────────────────────────────────────────────────────
 
 export async function fetchChildState(
   child: Child
@@ -122,9 +202,7 @@ export async function fetchChildState(
   const supabase = getSupabaseBrowserClient();
   const { data, error } = await supabase
     .from('children')
-    .select(
-      'child_id, display_name, stars, hearts, screen_energy, equipped_pet, equipped_skin_by_pet, updated_at'
-    )
+    .select(SELECT_COLUMNS)
     .eq('child_id', child.id)
     .maybeSingle<ChildrenRow>();
 
@@ -135,6 +213,8 @@ export async function fetchChildState(
 
   return data ? toSupabaseChildState(data, child) : null;
 }
+
+// ─── Full upsert (called on every save from mission-state) ───────────────────
 
 export async function upsertChildStateFromDashboard(
   child: Child,
@@ -147,9 +227,7 @@ export async function upsertChildStateFromDashboard(
   const { data, error } = await supabase
     .from('children')
     .upsert(payload, { onConflict: 'child_id' })
-    .select(
-      'child_id, display_name, stars, hearts, screen_energy, equipped_pet, equipped_skin_by_pet, updated_at'
-    )
+    .select(SELECT_COLUMNS)
     .single<ChildrenRow>();
 
   if (error) {
@@ -160,10 +238,11 @@ export async function upsertChildStateFromDashboard(
   return data ? toSupabaseChildState(data, child) : null;
 }
 
-export async function updateChildCurrencies(
-  child: Child,
-  updates: CurrencyUpdate
-) {
+// ─── Targeted update helpers (Phase 1 — update specific fields only) ─────────
+// These upserts omit Phase 2 columns intentionally: PostgreSQL ON CONFLICT UPDATE
+// only touches the columns listed in the SET payload, leaving the rest unchanged.
+
+export async function updateChildCurrencies(child: Child, updates: CurrencyUpdate) {
   if (!hasSupabaseBrowserEnv()) return null;
 
   const payload: Record<string, number | string> = {
@@ -171,23 +250,16 @@ export async function updateChildCurrencies(
     display_name: child.name,
   };
 
-  if (updates.stars !== undefined) {
-    payload.stars = Math.max(0, Math.floor(updates.stars));
-  }
-  if (updates.hearts !== undefined) {
-    payload.hearts = Math.max(0, Math.floor(updates.hearts));
-  }
-  if (updates.screenEnergy !== undefined) {
+  if (updates.stars !== undefined) payload.stars = Math.max(0, Math.floor(updates.stars));
+  if (updates.hearts !== undefined) payload.hearts = Math.max(0, Math.floor(updates.hearts));
+  if (updates.screenEnergy !== undefined)
     payload.screen_energy = normalizeScreenEnergy(updates.screenEnergy);
-  }
 
   const supabase = getSupabaseBrowserClient();
   const { data, error } = await supabase
     .from('children')
     .upsert(payload, { onConflict: 'child_id' })
-    .select(
-      'child_id, display_name, stars, hearts, screen_energy, equipped_pet, equipped_skin_by_pet, updated_at'
-    )
+    .select(SELECT_COLUMNS)
     .single<ChildrenRow>();
 
   if (error) {
@@ -208,16 +280,10 @@ export async function updateEquippedPet(
   const { data, error } = await supabase
     .from('children')
     .upsert(
-      {
-        child_id: child.id,
-        display_name: child.name,
-        equipped_pet: equippedPet,
-      },
+      { child_id: child.id, display_name: child.name, equipped_pet: equippedPet },
       { onConflict: 'child_id' }
     )
-    .select(
-      'child_id, display_name, stars, hearts, screen_energy, equipped_pet, equipped_skin_by_pet, updated_at'
-    )
+    .select(SELECT_COLUMNS)
     .single<ChildrenRow>();
 
   if (error) {
@@ -240,6 +306,7 @@ export async function updateEquippedSkin(
     ...currentActiveSkins,
     [petType]: skinId,
   });
+
   const supabase = getSupabaseBrowserClient();
   const { data, error } = await supabase
     .from('children')
@@ -251,9 +318,7 @@ export async function updateEquippedSkin(
       },
       { onConflict: 'child_id' }
     )
-    .select(
-      'child_id, display_name, stars, hearts, screen_energy, equipped_pet, equipped_skin_by_pet, updated_at'
-    )
+    .select(SELECT_COLUMNS)
     .single<ChildrenRow>();
 
   if (error) {

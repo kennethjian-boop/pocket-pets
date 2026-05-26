@@ -738,6 +738,9 @@ function getSharedStateMirrorKey(state: Partial<ChildDashboardState>) {
     screenEnergy: state.screenEnergy,
     activePetId: state.activePetId ?? state.activePetType,
     activeSkins: state.activeSkins,
+    unlockedPets: state.unlockedPets,
+    ownedSkins: state.ownedSkins,
+    activeEgg: state.activeEgg,
   });
 }
 
@@ -787,7 +790,10 @@ function isRemoteAtMockDefault(child: Child, remoteState: SupabaseChildState) {
     remoteState.hearts === child.hearts &&
     remoteState.screenEnergy === child.screenEnergy &&
     remoteState.equippedPet === defaultPet &&
-    Object.values(remoteState.equippedSkinByPet).every((skinId) => skinId === null)
+    Object.values(remoteState.equippedSkinByPet).every((skinId) => skinId === null) &&
+    remoteState.ownedPets.length <= 1 &&
+    remoteState.ownedSkins.length === 0 &&
+    remoteState.secretEggState === null
   );
 }
 
