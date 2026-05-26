@@ -42,6 +42,9 @@ type SyncDebugInfo = {
   syncError: string | null;
   goalsDate: string | null;
   goalsIds: string;
+  goalsSource: 'supabase' | 'local-fallback' | 'default-generated';
+  goalsTitles: string;
+  completedGoalIds: string;
 };
 import { getSkinById, skinsByPet } from '@/lib/pet-skins';
 import { PetAvatar } from '@/components/PetAvatar';
@@ -193,9 +196,10 @@ export default function ChildHome() {
     // Does NOT set dashboardLoaded — that must only happen after Supabase hydration
     // to prevent stale localStorage values from being written back to Supabase.
     const applyDashboardState = (
-      parsed: ReturnType<typeof mergeWithDefaultChildState>
+      parsed: ReturnType<typeof mergeWithDefaultChildState>,
+      goals?: DailyMission[]
     ) => {
-      setMissionTemplates(getDailyGoalsForChild(childId));
+      setMissionTemplates(goals ?? dailyMissionTemplates);
       setStars(parsed.stars);
       setHearts(parsed.hearts);
       setScreenEnergy(parsed.screenEnergy);
@@ -213,7 +217,16 @@ export default function ChildHome() {
     };
 
     const syncFromStorage = () => {
-      applyDashboardState(mergeWithDefaultChildState(child, readChildDashboardState(childId)));
+      const today = getTodayKey();
+      const stored = readDailyGoalsByChild()[childId];
+      // Only call getDailyGoalsForChild when today's goals already exist in localStorage.
+      // ensureDailyGoalsForChild (called inside it) would otherwise generate random goals
+      // and fire a Supabase write that corrupts the row before the Supabase read returns.
+      const goals =
+        stored?.date === today && stored.goals.length > 0
+          ? getDailyGoalsForChild(childId)
+          : undefined;
+      applyDashboardState(mergeWithDefaultChildState(child, readChildDashboardState(childId)), goals);
     };
 
     syncFromStorage();
@@ -241,21 +254,36 @@ export default function ChildHome() {
         }
       }),
     ]).then(([hydratedState]) => {
-      applyDashboardState(hydratedState);
+      // Safe to call getDailyGoalsForChild here: Supabase goals are now in localStorage.
+      const resolvedGoals = getDailyGoalsForChild(childId);
+      applyDashboardState(hydratedState, resolvedGoals);
       // setDashboardLoaded MUST be set here (post-hydration) not in syncFromStorage.
       // Setting it early causes saveChildDashboardState to fire with stale localStorage
       // values (stars=0 etc) which then race-write to Supabase before the fetch returns.
       setDashboardLoaded(true);
       const syncMeta = readChildSupabaseSyncMeta(childId);
+      const todayKey = getTodayKey();
+      const storedGoals = readDailyGoalsByChild()[childId];
+      const goalsSource: SyncDebugInfo['goalsSource'] = capturedGoals
+        ? 'supabase'
+        : storedGoals?.date === todayKey && storedGoals.goals.length > 0
+          ? 'local-fallback'
+          : 'default-generated';
       setSyncDebug({
         supabaseEnv: hasSupabaseBrowserEnv(),
         childId,
-        dateKey: getTodayKey(),
+        dateKey: todayKey,
         hydratedStars: hydratedState.stars,
         syncSource: syncMeta.lastSyncSource,
         syncError: syncMeta.lastSyncError,
         goalsDate: capturedGoals?.date ?? null,
         goalsIds: capturedGoals?.goalIds.join(', ') ?? 'none',
+        goalsSource,
+        goalsTitles: resolvedGoals.map((g) => g.title).join(' / '),
+        completedGoalIds:
+          Object.keys(hydratedState.completedMissions ?? {})
+            .filter((id) => (hydratedState.completedMissions ?? {})[id])
+            .join(', ') || 'none',
       });
     });
 
@@ -1139,6 +1167,9 @@ export default function ChildHome() {
                     <p>date key: <span className="font-mono">{syncDebug.dateKey}</span></p>
                     <p>goals date: <span className="font-mono">{syncDebug.goalsDate ?? 'none in Supabase'}</span></p>
                     <p>goals ids: <span className="font-mono">{syncDebug.goalsIds}</span></p>
+                    <p>goals source: <span className="font-bold">{syncDebug.goalsSource}</span></p>
+                    <p>goals titles: <span className="font-mono">{syncDebug.goalsTitles}</span></p>
+                    <p>completed ids: <span className="font-mono">{syncDebug.completedGoalIds}</span></p>
                   </div>
                 ) : (
                   <p className="text-blue-500 italic">Hydrating from Supabase…</p>
