@@ -53,9 +53,13 @@ const SELECT = 'child_id, date, goal_ids, setup_mode, previous_goal_ids, updated
 export async function fetchDailyGoalsForChild(
   childId: string
 ): Promise<SupabaseDailyGoalState | null> {
-  if (!hasSupabaseBrowserEnv()) return null;
+  if (!hasSupabaseBrowserEnv()) {
+    console.log('[Goals] Supabase env not available — using localStorage for', childId);
+    return null;
+  }
 
   const supabase = getSupabaseBrowserClient();
+  console.log('[Goals] Fetching from Supabase for child_id:', childId);
   const { data, error } = await supabase
     .from('daily_goals')
     .select(SELECT)
@@ -63,11 +67,17 @@ export async function fetchDailyGoalsForChild(
     .maybeSingle<DailyGoalsRow>();
 
   if (error) {
-    console.warn('Unable to fetch daily goals from Supabase.', error.message);
+    console.warn('[Goals] Fetch error for', childId, '—', error.message);
     return null;
   }
 
-  return data ? toSupabaseDailyGoalState(data) : null;
+  const result = data ? toSupabaseDailyGoalState(data) : null;
+  if (result) {
+    console.log('[Goals] Row found for', childId, '— date:', result.date, 'ids:', result.goalIds, 'mode:', result.setupMode);
+  } else {
+    console.log('[Goals] No row in Supabase for', childId, '— will use localStorage');
+  }
+  return result;
 }
 
 // ─── Upsert (fire-and-forget from mission-state) ──────────────────────────────
@@ -79,6 +89,7 @@ export async function upsertDailyGoalsForChild(
 ): Promise<void> {
   if (!hasSupabaseBrowserEnv()) return;
 
+  console.log('[Goals] Upserting to Supabase for', childId, '— date:', record.date, 'ids:', record.goals, 'mode:', setupMode);
   const supabase = getSupabaseBrowserClient();
   const { error } = await supabase.from('daily_goals').upsert(
     {
@@ -93,6 +104,8 @@ export async function upsertDailyGoalsForChild(
   );
 
   if (error) {
-    console.warn('Unable to upsert daily goals to Supabase.', error.message);
+    console.warn('[Goals] Upsert error for', childId, '—', error.message);
+  } else {
+    console.log('[Goals] Upsert succeeded for', childId);
   }
 }

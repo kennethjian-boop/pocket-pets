@@ -24,6 +24,8 @@ export type SupabaseChildState = {
   ownedPets: PetRosterItem['id'][];
   ownedSkins: SkinId[];
   secretEggState: SecretEggState | null;
+  // Phase 3 — verification state
+  completedMissions: Record<string, boolean>;
   updatedAt: string;
 };
 
@@ -41,6 +43,8 @@ type ChildrenRow = {
   owned_pets: unknown[] | null;
   owned_skins: unknown[] | null;
   secret_egg_state: Record<string, unknown> | null;
+  // Phase 3
+  completed_missions: Record<string, unknown> | null;
   updated_at: string;
 };
 
@@ -54,7 +58,7 @@ const VALID_PETS = new Set<PetRosterItem['id']>(['luna', 'bubbo', 'mochi', 'embe
 
 // Single source of truth for the SELECT column list — update here to add columns.
 const SELECT_COLUMNS =
-  'child_id, display_name, stars, hearts, screen_energy, equipped_pet, equipped_skin_by_pet, owned_pets, owned_skins, secret_egg_state, updated_at';
+  'child_id, display_name, stars, hearts, screen_energy, equipped_pet, equipped_skin_by_pet, owned_pets, owned_skins, secret_egg_state, completed_missions, updated_at';
 
 // ─── Normalizers ─────────────────────────────────────────────────────────────
 
@@ -105,6 +109,15 @@ function normalizeOwnedSkinsArray(value: unknown): SkinId[] {
   );
 }
 
+function normalizeCompletedMissions(value: unknown): Record<string, boolean> {
+  if (!value || typeof value !== 'object') return {};
+  const result: Record<string, boolean> = {};
+  for (const [missionId, done] of Object.entries(value as Record<string, unknown>)) {
+    if (done === true) result[missionId] = true;
+  }
+  return result;
+}
+
 function normalizeSecretEggState(value: unknown): SecretEggState | null {
   if (!value || typeof value !== 'object') return null;
   const egg = value as Record<string, unknown>;
@@ -143,6 +156,7 @@ function toSupabaseChildState(row: ChildrenRow, child: Child): SupabaseChildStat
     ownedPets: normalizeOwnedPets(row.owned_pets, fallbackPet),
     ownedSkins: normalizeOwnedSkinsArray(row.owned_skins),
     secretEggState: normalizeSecretEggState(row.secret_egg_state),
+    completedMissions: normalizeCompletedMissions(row.completed_missions),
     updatedAt: row.updated_at,
   };
 }
@@ -163,6 +177,7 @@ function toChildrenUpsert(child: Child, state: Partial<ChildDashboardState>) {
     owned_pets: state.unlockedPets ?? [fallbackPet],
     owned_skins: state.ownedSkins ?? [],
     secret_egg_state: state.activeEgg ?? null,
+    completed_missions: state.completedMissions ?? {},
   };
 }
 
@@ -189,6 +204,8 @@ export function mergeSupabaseChildState(
     ownedSkins: remoteState.ownedSkins,
     // Prefer remote egg; fall back to local if remote has none (race condition guard)
     activeEgg: remoteState.secretEggState ?? localState.activeEgg,
+    // Phase 3 — remote wins: parent verification must reflect across devices
+    completedMissions: remoteState.completedMissions,
   };
 }
 

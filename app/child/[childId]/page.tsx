@@ -24,9 +24,12 @@ import {
   hydrateChildDashboardStateFromSupabase,
   mergeWithDefaultChildState,
   readChildDashboardState,
+  readDailyGoalsByChild,
   saveChildDashboardState,
   setActiveSkin,
+  writeDailyGoalsByChild,
 } from '@/lib/mission-state';
+import { fetchDailyGoalsForChild } from '@/lib/supabase-goals';
 import { getSkinById, skinsByPet } from '@/lib/pet-skins';
 import { PetAvatar } from '@/components/PetAvatar';
 import {
@@ -198,7 +201,28 @@ export default function ChildHome() {
     };
 
     syncFromStorage();
-    void hydrateChildDashboardStateFromSupabase(childId, child).then(applyDashboardState);
+    void Promise.all([
+      hydrateChildDashboardStateFromSupabase(childId, child),
+      fetchDailyGoalsForChild(childId).then((remote) => {
+        const today = getTodayKey();
+        if (remote && remote.date === today && remote.goalIds.length === 3) {
+          console.log('[Goals] Hydrating child page from Supabase:', remote.goalIds, 'date:', remote.date, 'mode:', remote.setupMode);
+          writeDailyGoalsByChild({
+            ...readDailyGoalsByChild(),
+            [childId]: {
+              date: remote.date,
+              source: remote.setupMode !== 'auto' ? remote.setupMode : 'random',
+              goals: remote.goalIds,
+              previousGoals: remote.previousGoalIds,
+            },
+          });
+        } else {
+          console.log('[Goals] Child page: no valid Supabase goals — today:', today, 'remote date:', remote?.date ?? 'null');
+        }
+      }),
+    ]).then(([hydratedState]) => {
+      applyDashboardState(hydratedState);
+    });
 
     const handleStorage = (event: StorageEvent) => {
       if (
