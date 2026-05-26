@@ -1,0 +1,932 @@
+import { PET_ROSTER, getPetByChildId, type Child, type PetRosterItem } from '@/lib/mock-data';
+import { normalizeScreenEnergy } from '@/lib/screen-energy';
+import { SKIN_ROSTER, VALID_SKIN_IDS, type PetType, type SkinId } from '@/lib/pet-skins';
+
+export type CompletedMissions = Record<string, boolean>;
+export type CareActionType = 'feed' | 'pat' | 'clean';
+export type { PetType, SkinId };
+export type GoalCategory =
+  | 'reading'
+  | 'kindness'
+  | 'chores'
+  | 'self-care'
+  | 'learning'
+  | 'calm'
+  | 'family';
+export type DailyGoalSource = 'manual' | 'random';
+
+export type DailyActionCounts = Record<CareActionType, number>;
+export type LastActionTimestamps = Record<CareActionType, number>;
+
+export interface DailyMission {
+  id: string;
+  title: string;
+  description: string;
+  reward: number;
+  category?: GoalCategory;
+  starReward?: number;
+  bossDamage?: number;
+}
+
+export interface GoalTemplate {
+  id: string;
+  title: string;
+  description: string;
+  category: GoalCategory;
+  starReward: number;
+  bossDamage: number;
+  suggestedAge?: string;
+}
+
+export interface DailyGoalsRecord {
+  date: string;
+  source: DailyGoalSource;
+  goals: string[];
+  previousGoals?: string[];
+}
+
+export type DailyGoalsByChild = Record<string, DailyGoalsRecord>;
+
+export type GoalSetupMode = DailyGoalSource | 'auto';
+
+export interface GoalSetupState {
+  modeByChild: Record<string, GoalSetupMode>;
+}
+
+export interface ChildDashboardState {
+  stars: number;
+  hearts: number;
+  screenEnergy: number;
+  activePetId: PetRosterItem['id'];
+  activePetType: PetRosterItem['id'];
+  unlockedPets: PetRosterItem['id'][];
+  activeEgg: SecretEggState | null;
+  eggMessage: string | null;
+  comfort: number;
+  completedMissions: CompletedMissions;
+  ownedSkins: SkinId[];
+  activeSkins: Record<PetType, SkinId | null>;
+  dailyActionCounts: DailyActionCounts;
+  lastActionTimestamps: LastActionTimestamps;
+  careResetDate: string;
+  patHeartAwarded: boolean;
+  goalsDate: string;
+}
+
+export interface SecretEggState {
+  id: string;
+  type: 'secret-egg';
+  progress: number;
+  requiredGoals: number;
+  contributedGoalIds: string[];
+  hatched: boolean;
+  unlockedPetId: PetRosterItem['id'] | null;
+}
+
+export { SKIN_ROSTER, SKIN_COST, skinsByPet, getSkinById } from '@/lib/pet-skins';
+
+export const goalBank: GoalTemplate[] = [
+  {
+    id: 'read-cozy-tales',
+    title: 'Read Cozy Tales',
+    description: 'Help Cozy learn a new story',
+    category: 'reading',
+    starReward: 10,
+    bossDamage: 10,
+  },
+  {
+    id: 'read-15-minutes',
+    title: 'Read for 15 Minutes',
+    description: 'Read quietly and enjoy a book',
+    category: 'reading',
+    starReward: 10,
+    bossDamage: 10,
+  },
+  {
+    id: 'practise-spelling',
+    title: 'Practise Spelling',
+    description: 'Try your spelling words carefully',
+    category: 'learning',
+    starReward: 10,
+    bossDamage: 10,
+  },
+  {
+    id: 'complete-one-worksheet',
+    title: 'Complete One Worksheet',
+    description: 'Finish one learning task with good effort',
+    category: 'learning',
+    starReward: 15,
+    bossDamage: 10,
+  },
+  {
+    id: 'tell-me-about-your-book',
+    title: 'Tell Me About Your Book',
+    description: 'Share what happened in your story',
+    category: 'reading',
+    starReward: 10,
+    bossDamage: 10,
+  },
+  {
+    id: 'practice-kindness',
+    title: 'Practice Kindness',
+    description: 'Share a smile with a friend',
+    category: 'kindness',
+    starReward: 15,
+    bossDamage: 10,
+  },
+  {
+    id: 'use-gentle-words',
+    title: 'Use Gentle Words',
+    description: 'Speak kindly even when upset',
+    category: 'kindness',
+    starReward: 15,
+    bossDamage: 10,
+  },
+  {
+    id: 'help-someone-at-home',
+    title: 'Help Someone at Home',
+    description: 'Do one helpful thing for the family',
+    category: 'family',
+    starReward: 15,
+    bossDamage: 10,
+  },
+  {
+    id: 'say-thank-you',
+    title: 'Say Thank You',
+    description: 'Remember to show appreciation',
+    category: 'kindness',
+    starReward: 10,
+    bossDamage: 5,
+  },
+  {
+    id: 'share-with-sibling',
+    title: 'Share with Sibling',
+    description: 'Share something nicely with Ansel or Thea',
+    category: 'kindness',
+    starReward: 15,
+    bossDamage: 10,
+  },
+  {
+    id: 'collect-star-gems',
+    title: 'Collect Star Gems',
+    description: 'Find treasures around the room',
+    category: 'chores',
+    starReward: 20,
+    bossDamage: 10,
+  },
+  {
+    id: 'pack-away-toys',
+    title: 'Pack Away Toys',
+    description: 'Put toys back where they belong',
+    category: 'chores',
+    starReward: 15,
+    bossDamage: 10,
+  },
+  {
+    id: 'help-with-dinner',
+    title: 'Help with Dinner',
+    description: 'Help with one simple dinner task',
+    category: 'chores',
+    starReward: 15,
+    bossDamage: 10,
+  },
+  {
+    id: 'keep-shoes-neatly',
+    title: 'Keep Shoes Neatly',
+    description: 'Put shoes neatly at the door',
+    category: 'chores',
+    starReward: 10,
+    bossDamage: 5,
+  },
+  {
+    id: 'tidy-your-table',
+    title: 'Tidy Your Table',
+    description: 'Clear your table after using it',
+    category: 'chores',
+    starReward: 10,
+    bossDamage: 5,
+  },
+  {
+    id: 'brush-teeth-twice',
+    title: 'Brush Teeth Twice',
+    description: 'Morning and night brushing complete',
+    category: 'self-care',
+    starReward: 10,
+    bossDamage: 10,
+  },
+  {
+    id: 'get-ready-without-fuss',
+    title: 'Get Ready Without Fuss',
+    description: 'Get dressed and ready calmly',
+    category: 'self-care',
+    starReward: 15,
+    bossDamage: 10,
+  },
+  {
+    id: 'sleep-routine-helper',
+    title: 'Sleep Routine Helper',
+    description: 'Follow bedtime routine nicely',
+    category: 'self-care',
+    starReward: 15,
+    bossDamage: 10,
+  },
+  {
+    id: 'eat-dinner-nicely',
+    title: 'Eat Dinner Nicely',
+    description: 'Try your food and use good manners',
+    category: 'self-care',
+    starReward: 10,
+    bossDamage: 5,
+  },
+  {
+    id: 'pack-your-bag',
+    title: 'Pack Your Bag',
+    description: 'Prepare what you need for school',
+    category: 'self-care',
+    starReward: 10,
+    bossDamage: 5,
+  },
+  {
+    id: 'calm-down-brave',
+    title: 'Calm Down Brave',
+    description: 'Try calming down when upset',
+    category: 'calm',
+    starReward: 15,
+    bossDamage: 10,
+  },
+  {
+    id: 'use-your-words',
+    title: 'Use Your Words',
+    description: 'Tell us what you feel with words',
+    category: 'calm',
+    starReward: 15,
+    bossDamage: 10,
+  },
+  {
+    id: 'no-screaming-challenge',
+    title: 'No Screaming Challenge',
+    description: 'Use a calm voice today',
+    category: 'calm',
+    starReward: 20,
+    bossDamage: 15,
+  },
+  {
+    id: 'try-again-moment',
+    title: 'Try Again Moment',
+    description: 'Keep trying even when it is hard',
+    category: 'calm',
+    starReward: 15,
+    bossDamage: 10,
+  },
+  {
+    id: 'listen-the-first-time',
+    title: 'Listen the First Time',
+    description: 'Try to listen when parent speaks',
+    category: 'calm',
+    starReward: 15,
+    bossDamage: 10,
+  },
+  {
+    id: 'care-for-your-pet',
+    title: 'Care for Your Pet',
+    description: 'Feed, pat, or clean your pet kindly',
+    category: 'family',
+    starReward: 10,
+    bossDamage: 5,
+  },
+  {
+    id: 'family-helper',
+    title: 'Family Helper',
+    description: 'Do one thing that helps the family',
+    category: 'family',
+    starReward: 15,
+    bossDamage: 10,
+  },
+  {
+    id: 'be-a-good-sport',
+    title: 'Be a Good Sport',
+    description: 'Stay kind when playing or losing',
+    category: 'family',
+    starReward: 15,
+    bossDamage: 10,
+  },
+  {
+    id: 'quiet-time-win',
+    title: 'Quiet Time Win',
+    description: 'Spend quiet time without complaining',
+    category: 'calm',
+    starReward: 10,
+    bossDamage: 5,
+  },
+  {
+    id: 'morning-sunshine',
+    title: 'Morning Sunshine',
+    description: 'Start the morning with a good attitude',
+    category: 'family',
+    starReward: 15,
+    bossDamage: 10,
+  },
+];
+
+export const dailyMissionTemplates: DailyMission[] = goalBank.slice(0, 3).map((goal) => ({
+  ...goal,
+  reward: goal.starReward,
+}));
+
+const MAX_STARS = 9999;
+const MISSION_COMFORT_REWARD = 10;
+const DAILY_GOALS_STORAGE_KEY = 'daily-goals-by-child';
+const GOAL_SETUP_STORAGE_KEY = 'daily-goal-setup';
+
+export const careActionConfig: Record<
+  CareActionType,
+  {
+    dailyLimit: number;
+    cooldownMs: number;
+    comfortBoost: number;
+    successMessage: string;
+    limitMessage: string;
+  }
+> = {
+  feed: {
+    dailyLimit: 2,
+    cooldownMs: 60 * 1000,
+    comfortBoost: 8,
+    successMessage: '{petName} enjoyed the yummy treat!',
+    limitMessage: '{petName} is full for now!',
+  },
+  pat: {
+    dailyLimit: 5,
+    cooldownMs: 20 * 1000,
+    comfortBoost: 3,
+    successMessage: '{petName} feels loved!',
+    limitMessage: '{petName} feels loved already!',
+  },
+  clean: {
+    dailyLimit: 1,
+    cooldownMs: 120 * 1000,
+    comfortBoost: 10,
+    successMessage: '{petName} feels fresh and cozy!',
+    limitMessage: '{petName} is already clean and cozy!',
+  },
+};
+
+export const getTodayKey = () => new Date().toLocaleDateString('en-CA');
+
+export const getDefaultDailyActionCounts = (): DailyActionCounts => ({
+  feed: 0,
+  pat: 0,
+  clean: 0,
+});
+
+export const getDefaultLastActionTimestamps = (): LastActionTimestamps => ({
+  feed: 0,
+  pat: 0,
+  clean: 0,
+});
+
+export const clampStars = (stars: number) => Math.max(0, Math.min(MAX_STARS, stars));
+export const clampComfort = (comfort: number) => Math.max(0, Math.min(100, comfort));
+
+export const getChildDashboardStorageKey = (childId: string) =>
+  `child-dashboard-state-${childId}`;
+
+export const getDailyGoalsStorageKey = () => DAILY_GOALS_STORAGE_KEY;
+export const getGoalSetupStorageKey = () => GOAL_SETUP_STORAGE_KEY;
+
+const DEFAULT_ACTIVE_SKINS: Record<PetType, SkinId | null> = {
+  luna: null, bubbo: null, mochi: null, ember: null,
+};
+
+export const getDefaultChildDashboardState = (child: Child): ChildDashboardState => ({
+  stars: child.stars,
+  hearts: child.hearts,
+  screenEnergy: child.screenEnergy,
+  activePetId: getPetByChildId(child.id)?.pet ?? 'bubbo',
+  activePetType: getPetByChildId(child.id)?.pet ?? 'bubbo',
+  unlockedPets: [getPetByChildId(child.id)?.pet ?? 'bubbo'],
+  activeEgg: null,
+  eggMessage: null,
+  comfort: 72,
+  completedMissions: {},
+  ownedSkins: [],
+  activeSkins: { ...DEFAULT_ACTIVE_SKINS },
+  dailyActionCounts: getDefaultDailyActionCounts(),
+  lastActionTimestamps: getDefaultLastActionTimestamps(),
+  careResetDate: getTodayKey(),
+  patHeartAwarded: false,
+  goalsDate: getTodayKey(),
+});
+
+function normalizeUnlockedPets(value: unknown, fallbackPet: PetRosterItem['id']) {
+  if (!Array.isArray(value)) return [fallbackPet];
+  const validPets = value.filter((pet): pet is PetRosterItem['id'] =>
+    PET_ROSTER.some((item) => item.id === pet)
+  );
+  return Array.from(new Set([fallbackPet, ...validPets]));
+}
+
+function normalizeActiveEgg(value: unknown): SecretEggState | null {
+  if (!value || typeof value !== 'object') return null;
+  const egg = value as Partial<SecretEggState>;
+  if (egg.type !== 'secret-egg') return null;
+
+  return {
+    id: egg.id ?? `secret-egg-${Date.now()}`,
+    type: 'secret-egg',
+    progress: Math.max(0, Math.min(egg.requiredGoals ?? 10, egg.progress ?? 0)),
+    requiredGoals: egg.requiredGoals ?? 10,
+    contributedGoalIds: Array.isArray(egg.contributedGoalIds)
+      ? egg.contributedGoalIds.filter((goalId): goalId is string => typeof goalId === 'string')
+      : [],
+    hatched: egg.hatched ?? false,
+    unlockedPetId:
+      egg.unlockedPetId && PET_ROSTER.some((pet) => pet.id === egg.unlockedPetId)
+        ? egg.unlockedPetId
+        : null,
+  };
+}
+
+function normalizeOwnedSkins(value: unknown): SkinId[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value.filter((item): item is SkinId =>
+        typeof item === 'string' && VALID_SKIN_IDS.has(item)
+      )
+    )
+  );
+}
+
+function normalizeActiveSkins(value: unknown): Record<PetType, SkinId | null> {
+  const result: Record<PetType, SkinId | null> = { luna: null, bubbo: null, mochi: null, ember: null };
+  if (!value || typeof value !== 'object') return result;
+  for (const petType of ['luna', 'bubbo', 'mochi', 'ember'] as PetType[]) {
+    const skinId = (value as Record<string, unknown>)[petType];
+    if (typeof skinId === 'string' && VALID_SKIN_IDS.has(skinId)) {
+      result[petType] = skinId as SkinId;
+    }
+  }
+  return result;
+}
+
+export function getGoalById(goalId: string) {
+  return goalBank.find((goal) => goal.id === goalId);
+}
+
+function goalToMission(goal: GoalTemplate): DailyMission {
+  return {
+    ...goal,
+    reward: goal.starReward,
+  };
+}
+
+function getFallbackGoalIds() {
+  return goalBank.slice(0, 3).map((goal) => goal.id);
+}
+
+function getUniqueGoalIds(goalIds: string[]) {
+  const validIds = goalIds.filter((goalId) => getGoalById(goalId));
+  return Array.from(new Set(validIds)).slice(0, 3);
+}
+
+function getRandomGoalIds(previousGoals: string[] = []) {
+  const pool = [...goalBank];
+  const selected: string[] = [];
+
+  while (pool.length > 0 && selected.length < 3) {
+    const index = Math.floor(Math.random() * pool.length);
+    const [goal] = pool.splice(index, 1);
+    selected.push(goal.id);
+  }
+
+  if (
+    previousGoals.length >= 3 &&
+    selected.length === 3 &&
+    selected.every((goalId) => previousGoals.includes(goalId)) &&
+    goalBank.length > 3
+  ) {
+    const replacement = goalBank.find((goal) => !previousGoals.includes(goal.id));
+    if (replacement) {
+      selected[2] = replacement.id;
+    }
+  }
+
+  return selected;
+}
+
+export function readDailyGoalsByChild(): DailyGoalsByChild {
+  if (typeof window === 'undefined') return {};
+
+  try {
+    const stored = window.localStorage.getItem(DAILY_GOALS_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : {};
+  } catch (error) {
+    console.error('Failed to load daily goals', error);
+    return {};
+  }
+}
+
+export function writeDailyGoalsByChild(dailyGoals: DailyGoalsByChild) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(DAILY_GOALS_STORAGE_KEY, JSON.stringify(dailyGoals));
+}
+
+export function readGoalSetupState(): GoalSetupState {
+  if (typeof window === 'undefined') return { modeByChild: {} };
+
+  try {
+    const stored = window.localStorage.getItem(GOAL_SETUP_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : { modeByChild: {} };
+  } catch (error) {
+    console.error('Failed to load goal setup state', error);
+    return { modeByChild: {} };
+  }
+}
+
+export function writeGoalSetupState(goalSetup: GoalSetupState) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(GOAL_SETUP_STORAGE_KEY, JSON.stringify(goalSetup));
+}
+
+export function getGoalSetupMode(childId: string) {
+  return readGoalSetupState().modeByChild[childId] ?? 'auto';
+}
+
+export function setGoalSetupMode(childId: string, mode: GoalSetupMode) {
+  const current = readGoalSetupState();
+  const next = {
+    ...current,
+    modeByChild: {
+      ...current.modeByChild,
+      [childId]: mode,
+    },
+  };
+  writeGoalSetupState(next);
+  return next;
+}
+
+export function ensureDailyGoalsForChild(childId: string) {
+  const today = getTodayKey();
+  const dailyGoals = readDailyGoalsByChild();
+  const current = dailyGoals[childId];
+
+  if (current?.date === today) {
+    const uniqueGoals = getUniqueGoalIds(current.goals);
+    if (uniqueGoals.length === 3) {
+      return current;
+    }
+  }
+
+  const previousGoals = current?.goals ?? [];
+  const nextRecord: DailyGoalsRecord = {
+    date: today,
+    source: 'random',
+    goals: getRandomGoalIds(previousGoals),
+    previousGoals,
+  };
+  const nextDailyGoals = {
+    ...dailyGoals,
+    [childId]: nextRecord,
+  };
+  writeDailyGoalsByChild(nextDailyGoals);
+  return nextRecord;
+}
+
+export function getDailyGoalsForChild(childId: string) {
+  const record = ensureDailyGoalsForChild(childId);
+  const goals = record.goals
+    .map((goalId) => getGoalById(goalId))
+    .filter((goal): goal is GoalTemplate => Boolean(goal))
+    .slice(0, 3);
+
+  if (goals.length === 3) {
+    return goals.map(goalToMission);
+  }
+
+  return getFallbackGoalIds()
+    .map((goalId) => getGoalById(goalId))
+    .filter((goal): goal is GoalTemplate => Boolean(goal))
+    .map(goalToMission);
+}
+
+export function setDailyGoalsForChild(
+  childId: string,
+  goalIds: string[],
+  source: DailyGoalSource = 'manual'
+) {
+  const today = getTodayKey();
+  const currentDailyGoals = readDailyGoalsByChild();
+  const current = currentDailyGoals[childId];
+  const uniqueGoals = getUniqueGoalIds(goalIds);
+  const goals = uniqueGoals.length === 3 ? uniqueGoals : getFallbackGoalIds();
+  const nextRecord: DailyGoalsRecord = {
+    date: today,
+    source,
+    goals,
+    previousGoals: current?.goals ?? [],
+  };
+  const nextDailyGoals = {
+    ...currentDailyGoals,
+    [childId]: nextRecord,
+  };
+
+  writeDailyGoalsByChild(nextDailyGoals);
+  return nextRecord;
+}
+
+export function randomizeDailyGoalsForChild(childId: string) {
+  const current = readDailyGoalsByChild()[childId];
+  return setDailyGoalsForChild(
+    childId,
+    getRandomGoalIds(current?.goals ?? []),
+    'random'
+  );
+}
+
+export function readChildDashboardState(childId: string): Partial<ChildDashboardState> | null {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const stored = window.localStorage.getItem(getChildDashboardStorageKey(childId));
+    return stored ? JSON.parse(stored) : null;
+  } catch (error) {
+    console.error('Failed to load dashboard state', error);
+    return null;
+  }
+}
+
+export function writeChildDashboardState(
+  childId: string,
+  state: ChildDashboardState
+) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(getChildDashboardStorageKey(childId), JSON.stringify(state));
+}
+
+export function mergeWithDefaultChildState(
+  child: Child,
+  stored: Partial<ChildDashboardState> | null
+): ChildDashboardState {
+  const defaults = getDefaultChildDashboardState(child);
+  const resetForNewDay = stored?.careResetDate && stored.careResetDate !== getTodayKey();
+  const resetGoalsForNewDay = stored?.goalsDate && stored.goalsDate !== getTodayKey();
+  const fallbackPet = defaults.activePetType;
+  const unlockedPets = normalizeUnlockedPets(stored?.unlockedPets, fallbackPet);
+  const ownedSkins = normalizeOwnedSkins(stored?.ownedSkins);
+  const rawActiveSkins = normalizeActiveSkins(stored?.activeSkins);
+  const activeSkins: Record<PetType, SkinId | null> = {
+    luna:  ownedSkins.includes(rawActiveSkins.luna  as SkinId) ? rawActiveSkins.luna  : null,
+    bubbo: ownedSkins.includes(rawActiveSkins.bubbo as SkinId) ? rawActiveSkins.bubbo : null,
+    mochi: ownedSkins.includes(rawActiveSkins.mochi as SkinId) ? rawActiveSkins.mochi : null,
+    ember: ownedSkins.includes(rawActiveSkins.ember as SkinId) ? rawActiveSkins.ember : null,
+  };
+  const requestedActivePet = stored?.activePetId ?? stored?.activePetType;
+  const activePetId =
+    requestedActivePet && unlockedPets.includes(requestedActivePet)
+      ? requestedActivePet
+      : fallbackPet;
+
+  return {
+    ...defaults,
+    ...stored,
+    stars: stored?.stars ?? defaults.stars,
+    hearts: stored?.hearts ?? defaults.hearts,
+    screenEnergy: normalizeScreenEnergy(stored?.screenEnergy ?? defaults.screenEnergy),
+    activePetId,
+    activePetType: activePetId,
+    unlockedPets,
+    activeEgg: normalizeActiveEgg(stored?.activeEgg),
+    eggMessage: stored?.eggMessage ?? defaults.eggMessage,
+    comfort: stored?.comfort ?? defaults.comfort,
+    completedMissions: resetGoalsForNewDay
+      ? defaults.completedMissions
+      : stored?.completedMissions ?? defaults.completedMissions,
+    ownedSkins,
+    activeSkins,
+    dailyActionCounts: resetForNewDay
+      ? defaults.dailyActionCounts
+      : { ...defaults.dailyActionCounts, ...stored?.dailyActionCounts },
+    lastActionTimestamps: resetForNewDay
+      ? defaults.lastActionTimestamps
+      : { ...defaults.lastActionTimestamps, ...stored?.lastActionTimestamps },
+    careResetDate: resetForNewDay ? defaults.careResetDate : stored?.careResetDate ?? defaults.careResetDate,
+    patHeartAwarded: resetForNewDay ? false : stored?.patHeartAwarded ?? defaults.patHeartAwarded,
+    goalsDate: resetGoalsForNewDay ? defaults.goalsDate : stored?.goalsDate ?? defaults.goalsDate,
+  };
+}
+
+export function saveChildDashboardState(
+  childId: string,
+  child: Child,
+  updates: Partial<ChildDashboardState>
+) {
+  const current = mergeWithDefaultChildState(child, readChildDashboardState(childId));
+  const nextUnlockedPets = updates.unlockedPets ?? current.unlockedPets;
+  const requestedActivePet = updates.activePetId ?? updates.activePetType ?? current.activePetId;
+  const activePetId = nextUnlockedPets.includes(requestedActivePet)
+    ? requestedActivePet
+    : nextUnlockedPets[0] ?? current.activePetId;
+  const nextState = {
+    ...current,
+    ...updates,
+    completedMissions: updates.completedMissions ?? current.completedMissions,
+    unlockedPets: nextUnlockedPets,
+    activePetId,
+    activePetType: activePetId,
+    activeEgg: updates.activeEgg === undefined ? current.activeEgg : updates.activeEgg,
+    eggMessage: updates.eggMessage === undefined ? current.eggMessage : updates.eggMessage,
+    ownedSkins: updates.ownedSkins ?? current.ownedSkins,
+    activeSkins: updates.activeSkins ?? current.activeSkins,
+    dailyActionCounts: updates.dailyActionCounts ?? current.dailyActionCounts,
+    lastActionTimestamps: updates.lastActionTimestamps ?? current.lastActionTimestamps,
+    careResetDate: updates.careResetDate ?? current.careResetDate,
+    patHeartAwarded: updates.patHeartAwarded ?? current.patHeartAwarded,
+    goalsDate: updates.goalsDate ?? current.goalsDate,
+  };
+  writeChildDashboardState(childId, nextState);
+  return nextState;
+}
+
+export function setMissionCompletion(
+  childId: string,
+  child: Child,
+  mission: DailyMission,
+  completed: boolean
+) {
+  const current = mergeWithDefaultChildState(child, readChildDashboardState(childId));
+  const wasCompleted = current.completedMissions[mission.id] ?? false;
+
+  if (wasCompleted === completed) {
+    return current;
+  }
+
+  const completedMissions = {
+    ...current.completedMissions,
+    [mission.id]: completed,
+  };
+
+  const starReward = mission.starReward ?? mission.reward;
+  const stars = clampStars(current.stars + (completed ? starReward : -starReward));
+  const comfort = clampComfort(
+    current.comfort + (completed ? MISSION_COMFORT_REWARD : -MISSION_COMFORT_REWARD)
+  );
+  const nextState = { ...current, completedMissions, stars, comfort };
+  writeChildDashboardState(childId, nextState);
+  return nextState;
+}
+
+export const SECRET_EGG_COST = 50;
+export const SECRET_EGG_REQUIRED_GOALS = 10;
+
+export function getLockedPets(state: ChildDashboardState) {
+  return PET_ROSTER.filter((pet) => !state.unlockedPets.includes(pet.id));
+}
+
+export function getRandomLockedPet(unlockedPets: PetRosterItem['id'][]) {
+  const lockedPets = PET_ROSTER.filter((pet) => !unlockedPets.includes(pet.id));
+  if (lockedPets.length === 0) return null;
+  return lockedPets[Math.floor(Math.random() * lockedPets.length)];
+}
+
+export function createSecretEgg(childId: string, child: Child) {
+  const current = mergeWithDefaultChildState(child, readChildDashboardState(childId));
+  if (current.activeEgg && !current.activeEgg.hatched) {
+    return {
+      state: current,
+      ok: false,
+      message: 'You already have a Secret Egg hatching!',
+    };
+  }
+
+  if (getLockedPets(current).length === 0) {
+    return {
+      state: current,
+      ok: false,
+      message: 'You have unlocked all pets!',
+    };
+  }
+
+  if (current.stars < SECRET_EGG_COST) {
+    return {
+      state: current,
+      ok: false,
+      message: 'Not enough stars for a Secret Egg.',
+    };
+  }
+
+  const nextState = saveChildDashboardState(childId, child, {
+    stars: clampStars(current.stars - SECRET_EGG_COST),
+    activeEgg: {
+      id: `secret-egg-${Date.now()}`,
+      type: 'secret-egg',
+      progress: 0,
+      requiredGoals: SECRET_EGG_REQUIRED_GOALS,
+      contributedGoalIds: [],
+      hatched: false,
+      unlockedPetId: null,
+    },
+    eggMessage: null,
+  });
+
+  return {
+    state: nextState,
+    ok: true,
+    message: 'Secret Egg started hatching!',
+  };
+}
+
+export function clearEggMessage(childId: string, child: Child) {
+  return saveChildDashboardState(childId, child, { eggMessage: null });
+}
+
+export function selectActivePet(childId: string, child: Child, petId: PetRosterItem['id']) {
+  const current = mergeWithDefaultChildState(child, readChildDashboardState(childId));
+  if (!current.unlockedPets.includes(petId)) return current;
+  return saveChildDashboardState(childId, child, { activePetId: petId, activePetType: petId });
+}
+
+export function updateSecretEggProgressForGoal(
+  childId: string,
+  child: Child,
+  goalContributionId: string,
+  completed: boolean
+) {
+  const current = mergeWithDefaultChildState(child, readChildDashboardState(childId));
+  const egg = current.activeEgg;
+  if (!egg || egg.hatched) return current;
+
+  const hasContribution = egg.contributedGoalIds.includes(goalContributionId);
+  if (completed && hasContribution) return current;
+  if (!completed && !hasContribution) return current;
+
+  const contributedGoalIds = completed
+    ? [...egg.contributedGoalIds, goalContributionId]
+    : egg.contributedGoalIds.filter((goalId) => goalId !== goalContributionId);
+  const progress = Math.max(
+    0,
+    Math.min(egg.requiredGoals, egg.progress + (completed ? 1 : -1))
+  );
+
+  if (progress < egg.requiredGoals) {
+    return saveChildDashboardState(childId, child, {
+      activeEgg: {
+        ...egg,
+        progress,
+        contributedGoalIds,
+      },
+    });
+  }
+
+  const unlockedPet = getRandomLockedPet(current.unlockedPets);
+  if (!unlockedPet) {
+    return saveChildDashboardState(childId, child, {
+      activeEgg: {
+        ...egg,
+        progress,
+        contributedGoalIds,
+        hatched: true,
+      },
+      eggMessage: 'Your Secret Egg hatched, but all pets are already unlocked!',
+    });
+  }
+
+  return saveChildDashboardState(childId, child, {
+    unlockedPets: [...current.unlockedPets, unlockedPet.id],
+    activeEgg: {
+      ...egg,
+      progress: egg.requiredGoals,
+      contributedGoalIds,
+      hatched: true,
+      unlockedPetId: unlockedPet.id,
+    },
+    eggMessage: `Your Secret Egg hatched! You unlocked ${unlockedPet.name}!`,
+  });
+}
+
+export function purchaseSkin(childId: string, child: Child, skinId: SkinId) {
+  const current = mergeWithDefaultChildState(child, readChildDashboardState(childId));
+  const skin = SKIN_ROSTER.find((s) => s.id === skinId);
+  if (!skin) return { state: current, ok: false, message: 'Unknown skin.' };
+  if (current.ownedSkins.includes(skinId)) return { state: current, ok: false, message: 'You already own this look!' };
+  if (current.stars < skin.cost) return { state: current, ok: false, message: 'Not enough stars!' };
+
+  const nextState = saveChildDashboardState(childId, child, {
+    stars: clampStars(current.stars - skin.cost),
+    ownedSkins: [...current.ownedSkins, skinId],
+  });
+  return { state: nextState, ok: true, message: `${skin.name} unlocked!` };
+}
+
+export function setActiveSkin(
+  childId: string,
+  child: Child,
+  petType: PetType,
+  skinId: SkinId | null
+) {
+  const current = mergeWithDefaultChildState(child, readChildDashboardState(childId));
+  if (skinId !== null && !current.ownedSkins.includes(skinId)) return current;
+  return saveChildDashboardState(childId, child, {
+    activeSkins: { ...current.activeSkins, [petType]: skinId },
+  });
+}
