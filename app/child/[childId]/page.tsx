@@ -24,12 +24,25 @@ import {
   hydrateChildDashboardStateFromSupabase,
   mergeWithDefaultChildState,
   readChildDashboardState,
+  readChildSupabaseSyncMeta,
   readDailyGoalsByChild,
   saveChildDashboardState,
   setActiveSkin,
   writeDailyGoalsByChild,
 } from '@/lib/mission-state';
 import { fetchDailyGoalsForChild } from '@/lib/supabase-goals';
+import { hasSupabaseBrowserEnv } from '@/lib/supabase-browser';
+
+type SyncDebugInfo = {
+  supabaseEnv: boolean;
+  childId: string;
+  dateKey: string;
+  hydratedStars: number;
+  syncSource: string;
+  syncError: string | null;
+  goalsDate: string | null;
+  goalsIds: string;
+};
 import { getSkinById, skinsByPet } from '@/lib/pet-skins';
 import { PetAvatar } from '@/components/PetAvatar';
 import {
@@ -160,6 +173,7 @@ export default function ChildHome() {
   const [hourNow, setHourNow] = useState(() => new Date().getHours());
   const [showMoodDebug, setShowMoodDebug] = useState(false);
   const [useDebugMoodValues, setUseDebugMoodValues] = useState(false);
+  const [syncDebug, setSyncDebug] = useState<SyncDebugInfo | null>(null);
   const [debugMoodValues, setDebugMoodValues] = useState<DebugMoodValues>({
     comfort: 50,
     completedMissionsToday: 0,
@@ -175,6 +189,9 @@ export default function ChildHome() {
   useEffect(() => {
     if (!child) return;
 
+    // Applies all React state from a parsed dashboard state object.
+    // Does NOT set dashboardLoaded — that must only happen after Supabase hydration
+    // to prevent stale localStorage values from being written back to Supabase.
     const applyDashboardState = (
       parsed: ReturnType<typeof mergeWithDefaultChildState>
     ) => {
@@ -193,7 +210,6 @@ export default function ChildHome() {
       setPatHeartAwarded(parsed.patHeartAwarded);
       setOwnedSkins(parsed.ownedSkins);
       setActiveSkins(parsed.activeSkins);
-      setDashboardLoaded(true);
     };
 
     const syncFromStorage = () => {
@@ -201,10 +217,14 @@ export default function ChildHome() {
     };
 
     syncFromStorage();
+
+    let capturedGoals: { date: string; goalIds: string[] } | null = null;
+
     void Promise.all([
       hydrateChildDashboardStateFromSupabase(childId, child),
       fetchDailyGoalsForChild(childId).then((remote) => {
         const today = getTodayKey();
+        capturedGoals = remote ? { date: remote.date, goalIds: remote.goalIds } : null;
         if (remote && remote.date === today && remote.goalIds.length === 3) {
           console.log('[Goals] Hydrating child page from Supabase:', remote.goalIds, 'date:', remote.date, 'mode:', remote.setupMode);
           writeDailyGoalsByChild({
@@ -222,6 +242,21 @@ export default function ChildHome() {
       }),
     ]).then(([hydratedState]) => {
       applyDashboardState(hydratedState);
+      // setDashboardLoaded MUST be set here (post-hydration) not in syncFromStorage.
+      // Setting it early causes saveChildDashboardState to fire with stale localStorage
+      // values (stars=0 etc) which then race-write to Supabase before the fetch returns.
+      setDashboardLoaded(true);
+      const syncMeta = readChildSupabaseSyncMeta(childId);
+      setSyncDebug({
+        supabaseEnv: hasSupabaseBrowserEnv(),
+        childId,
+        dateKey: getTodayKey(),
+        hydratedStars: hydratedState.stars,
+        syncSource: syncMeta.lastSyncSource,
+        syncError: syncMeta.lastSyncError,
+        goalsDate: capturedGoals?.date ?? null,
+        goalsIds: capturedGoals?.goalIds.join(', ') ?? 'none',
+      });
     });
 
     const handleStorage = (event: StorageEvent) => {
@@ -1090,6 +1125,26 @@ export default function ChildHome() {
 
           {showMoodDebug ? (
             <div className="mt-3 rounded-[24px] border border-slate-200 bg-white/90 p-4 text-sm text-slate-700 shadow-sm">
+
+              {/* ── Sync status ── */}
+              <div className="mb-4 rounded-2xl border border-blue-100 bg-blue-50 p-3 text-xs leading-5">
+                <p className="mb-1 font-extrabold text-blue-800">Supabase Sync Status</p>
+                {syncDebug ? (
+                  <div className="grid gap-0.5 text-blue-700">
+                    <p>child_id: <span className="font-mono font-bold">{syncDebug.childId}</span></p>
+                    <p>supabase env: <span className="font-bold">{syncDebug.supabaseEnv ? '✅ present' : '❌ MISSING — localStorage only'}</span></p>
+                    <p>sync source: <span className="font-bold">{syncDebug.syncSource}</span></p>
+                    {syncDebug.syncError && <p className="text-red-600">error: {syncDebug.syncError}</p>}
+                    <p>hydrated stars: <span className="font-bold">{syncDebug.hydratedStars}</span></p>
+                    <p>date key: <span className="font-mono">{syncDebug.dateKey}</span></p>
+                    <p>goals date: <span className="font-mono">{syncDebug.goalsDate ?? 'none in Supabase'}</span></p>
+                    <p>goals ids: <span className="font-mono">{syncDebug.goalsIds}</span></p>
+                  </div>
+                ) : (
+                  <p className="text-blue-500 italic">Hydrating from Supabase…</p>
+                )}
+              </div>
+
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <label className="flex items-center gap-2 font-semibold text-slate-800">
                   <input
