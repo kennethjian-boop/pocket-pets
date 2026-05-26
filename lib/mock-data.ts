@@ -64,17 +64,17 @@ export const mockChildren: Child[] = [
     id: 'child-ansel',
     name: 'Ansel',
     petId: 'pet-ansel',
-    stars: 42,
-    hearts: 3,
-    screenEnergy: 3,
+    stars: 20,
+    hearts: 10,
+    screenEnergy: 0,
   },
   {
     id: 'child-thea',
     name: 'Thea',
     petId: 'pet-thea',
-    stars: 38,
-    hearts: 5,
-    screenEnergy: 4,
+    stars: 20,
+    hearts: 10,
+    screenEnergy: 0,
   },
 ];
 
@@ -229,4 +229,3 @@ export function getPetByChildId(childId: string): Pet | undefined {
 export function getChildStreaks(childId: string): Streak[] {
   return mockStreaks.filter((streak) => streak.childId === childId);
 }
-

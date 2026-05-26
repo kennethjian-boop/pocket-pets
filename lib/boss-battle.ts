@@ -1,4 +1,5 @@
 import type { Child } from '@/lib/mock-data';
+import { ensureFreshStartLocalReset } from '@/lib/fresh-start-reset';
 import { upsertBossState } from '@/lib/supabase-boss';
 
 export type BossAttackSourceType = 'mission' | 'parent_bonus';
@@ -199,6 +200,7 @@ export function recalculateBossBattleState(state: BossBattleState): BossBattleSt
 
 export function readBossBattleState(): BossBattleState {
   if (typeof window === 'undefined') return createDefaultBossBattleState();
+  ensureFreshStartLocalReset();
 
   try {
     const stored = window.localStorage.getItem(BOSS_BATTLE_STORAGE_KEY);

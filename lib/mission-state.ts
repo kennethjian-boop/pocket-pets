@@ -1,4 +1,5 @@
 import { PET_ROSTER, getPetByChildId, type Child, type PetRosterItem } from '@/lib/mock-data';
+import { ensureFreshStartLocalReset } from '@/lib/fresh-start-reset';
 import { normalizeScreenEnergy } from '@/lib/screen-energy';
 import { SKIN_ROSTER, VALID_SKIN_IDS, type PetType, type SkinId } from '@/lib/pet-skins';
 import {
@@ -428,6 +429,7 @@ export const getChildSupabaseSyncMetaStorageKey = (childId: string) =>
 
 export function readChildSupabaseSyncMeta(childId: string): ChildSupabaseSyncMeta {
   if (typeof window === 'undefined') return getDefaultChildSupabaseSyncMeta();
+  ensureFreshStartLocalReset();
 
   try {
     const stored = window.localStorage.getItem(getChildSupabaseSyncMetaStorageKey(childId));
@@ -582,6 +584,7 @@ function getRandomGoalIds(previousGoals: string[] = []) {
 
 export function readDailyGoalsByChild(): DailyGoalsByChild {
   if (typeof window === 'undefined') return {};
+  ensureFreshStartLocalReset();
 
   try {
     const stored = window.localStorage.getItem(DAILY_GOALS_STORAGE_KEY);
@@ -599,6 +602,7 @@ export function writeDailyGoalsByChild(dailyGoals: DailyGoalsByChild) {
 
 export function readGoalSetupState(): GoalSetupState {
   if (typeof window === 'undefined') return { modeByChild: {} };
+  ensureFreshStartLocalReset();
 
   try {
     const stored = window.localStorage.getItem(GOAL_SETUP_STORAGE_KEY);
@@ -712,6 +716,7 @@ export function randomizeDailyGoalsForChild(childId: string) {
 
 export function readChildDashboardState(childId: string): Partial<ChildDashboardState> | null {
   if (typeof window === 'undefined') return null;
+  ensureFreshStartLocalReset();
 
   try {
     const stored = window.localStorage.getItem(getChildDashboardStorageKey(childId));

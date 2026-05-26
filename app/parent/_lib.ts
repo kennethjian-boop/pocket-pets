@@ -1,4 +1,5 @@
 import { mockChildren } from '@/lib/mock-data';
+import { ensureFreshStartLocalReset } from '@/lib/fresh-start-reset';
 import {
   ChildDashboardState,
   DailyMission,
@@ -128,6 +129,7 @@ export const REWARD_TEMPLATES_KEY = 'pocket-pets-reward-templates';
 
 export function loadSavedRewardTemplates(): RewardTemplate[] {
   if (typeof window === 'undefined') return defaultRewardTemplates;
+  ensureFreshStartLocalReset();
   try {
     const stored = localStorage.getItem(REWARD_TEMPLATES_KEY);
     if (!stored) return defaultRewardTemplates;
