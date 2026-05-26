@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { readParentPin, writeParentPin } from '@/lib/parent-pin';
+import { fetchParentSettings, upsertParentSettings } from '@/lib/supabase-parent-settings';
 import { cardStyle, feedbackClass, FeedbackState, FeedbackTone } from '../_lib';
 
 export default function SettingsPage() {
@@ -13,6 +14,13 @@ export default function SettingsPage() {
   const [pinMessage, setPinMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [pinFormOpen, setPinFormOpen] = useState(false);
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
+
+  // Hydrate PIN from Supabase on mount so it reflects changes made on other devices.
+  useEffect(() => {
+    void fetchParentSettings().then((remote) => {
+      if (remote) writeParentPin(remote.pin);
+    });
+  }, []);
 
   const showFeedback = (message: string, tone: FeedbackTone = 'success') => {
     setFeedback({ message, tone });
@@ -35,6 +43,7 @@ export default function SettingsPage() {
       return;
     }
     writeParentPin(newPinInput);
+    void upsertParentSettings(newPinInput);
     setCurrentPinInput('');
     setNewPinInput('');
     setConfirmPinInput('');

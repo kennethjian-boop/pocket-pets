@@ -28,9 +28,11 @@ import {
   readDailyGoalsByChild,
   saveChildDashboardState,
   setActiveSkin,
+  writeChildDashboardState,
   writeDailyGoalsByChild,
 } from '@/lib/mission-state';
 import { fetchDailyGoalsForChild } from '@/lib/supabase-goals';
+import { fetchCareStateForChild, upsertCareStateForChild } from '@/lib/supabase-care-state';
 import { hasSupabaseBrowserEnv } from '@/lib/supabase-browser';
 
 type SyncDebugInfo = {
@@ -188,6 +190,7 @@ export default function ChildHome() {
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reactionIdRef = useRef(0);
+  const lastCareStateKeyRef = useRef('');
 
   useEffect(() => {
     if (!child) return;
@@ -232,6 +235,12 @@ export default function ChildHome() {
     syncFromStorage();
 
     let capturedGoals: { date: string; goalIds: string[] } | null = null;
+    let capturedCareState: {
+      date: string;
+      actionCounts: DailyActionCounts;
+      lastTimestamps: LastActionTimestamps;
+      patHeartAwarded: boolean;
+    } | null = null;
 
     void Promise.all([
       hydrateChildDashboardStateFromSupabase(childId, child),
@@ -253,10 +262,30 @@ export default function ChildHome() {
           console.log('[Goals] Child page: no valid Supabase goals — today:', today, 'remote date:', remote?.date ?? 'null');
         }
       }),
+      fetchCareStateForChild(childId).then((careState) => {
+        capturedCareState = careState;
+      }),
     ]).then(([hydratedState]) => {
+      const today = getTodayKey();
+      // If Supabase has valid care state for today, overlay it on the hydrated state.
+      // Writing back to localStorage prevents the 1-second syncFromStorage interval
+      // from re-reading stale care counts from the old local cache.
+      const mergedState =
+        capturedCareState && capturedCareState.date === today
+          ? {
+              ...hydratedState,
+              dailyActionCounts: capturedCareState.actionCounts,
+              lastActionTimestamps: capturedCareState.lastTimestamps,
+              patHeartAwarded: capturedCareState.patHeartAwarded,
+              careResetDate: today,
+            }
+          : hydratedState;
+      if (capturedCareState && capturedCareState.date === today) {
+        writeChildDashboardState(childId, mergedState);
+      }
       // Safe to call getDailyGoalsForChild here: Supabase goals are now in localStorage.
       const resolvedGoals = getDailyGoalsForChild(childId);
-      applyDashboardState(hydratedState, resolvedGoals);
+      applyDashboardState(mergedState, resolvedGoals);
       // setDashboardLoaded MUST be set here (post-hydration) not in syncFromStorage.
       // Setting it early causes saveChildDashboardState to fire with stale localStorage
       // values (stars=0 etc) which then race-write to Supabase before the fetch returns.
@@ -365,6 +394,19 @@ export default function ChildHome() {
     ownedSkins,
     activeSkins,
   ]);
+
+  useEffect(() => {
+    if (!dashboardLoaded) return;
+    const careKey = JSON.stringify({ dailyActionCounts, lastActionTimestamps, patHeartAwarded });
+    if (lastCareStateKeyRef.current === careKey) return;
+    lastCareStateKeyRef.current = careKey;
+    void upsertCareStateForChild(childId, {
+      date: getTodayKey(),
+      actionCounts: dailyActionCounts,
+      lastTimestamps: lastActionTimestamps,
+      patHeartAwarded,
+    });
+  }, [childId, dashboardLoaded, dailyActionCounts, lastActionTimestamps, patHeartAwarded]);
 
   useEffect(() => {
     return () => {

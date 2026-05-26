@@ -31,6 +31,7 @@ import {
   StatKey,
   StatPulse,
 } from '../_lib';
+import { fetchRewardTemplates, upsertRewardTemplates } from '@/lib/supabase-reward-templates';
 import { PillButton } from '../_components/PillButton';
 
 type NewTemplateCategory =
@@ -233,17 +234,35 @@ export default function RewardsPage() {
   const panelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const statTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Merges localStorage + defaults into a complete template list; writes to both stores.
+  const saveRewardTemplates = (templates: RewardTemplate[]) => {
+    persistRewardTemplates(templates);
+    void upsertRewardTemplates(templates);
+  };
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      void buildDashboardStatesFromSupabase().then((hydrated) => {
-      setDashboardStates(hydrated);
-      setRewardTemplates(loadSavedRewardTemplates());
-      setChildrenData((cur) =>
-        cur.map((child) => {
-          const s = hydrated[child.id];
-          return { ...child, stars: s.stars, hearts: s.hearts, screenEnergy: s.screenEnergy };
-        })
-      );
+      void Promise.all([
+        buildDashboardStatesFromSupabase(),
+        fetchRewardTemplates(),
+      ]).then(([hydrated, remoteTemplates]) => {
+        setDashboardStates(hydrated);
+        setChildrenData((cur) =>
+          cur.map((child) => {
+            const s = hydrated[child.id];
+            return { ...child, stars: s.stars, hearts: s.hearts, screenEnergy: s.screenEnergy };
+          })
+        );
+        if (remoteTemplates) {
+          // Supabase row exists — use it as source of truth; cache locally
+          persistRewardTemplates(remoteTemplates);
+          setRewardTemplates(remoteTemplates);
+        } else {
+          // No Supabase row — seed from localStorage and push to Supabase
+          const localTemplates = loadSavedRewardTemplates();
+          setRewardTemplates(localTemplates);
+          void upsertRewardTemplates(localTemplates);
+        }
       });
     }, 0);
     return () => window.clearTimeout(timer);
@@ -344,14 +363,14 @@ export default function RewardsPage() {
             }
           : t
       );
-      persistRewardTemplates(next);
+      saveRewardTemplates(next);
       return next;
     });
   };
 
   const handleResetTemplates = () => {
     setRewardTemplates(defaultRewardTemplates);
-    persistRewardTemplates(defaultRewardTemplates);
+    saveRewardTemplates(defaultRewardTemplates);
     showFeedback('Reward values reset to defaults.', 'info');
   };
 
@@ -377,7 +396,7 @@ export default function RewardsPage() {
         rewardType: selected.rewardType,
       };
       const next = [...cur, newTemplate];
-      persistRewardTemplates(next);
+      saveRewardTemplates(next);
       return next;
     });
     setNewLabel('');
@@ -389,7 +408,7 @@ export default function RewardsPage() {
   const handleDeleteTemplate = (id: string) => {
     setRewardTemplates((cur) => {
       const next = cur.filter((t) => t.id !== id);
-      persistRewardTemplates(next);
+      saveRewardTemplates(next);
       return next;
     });
   };

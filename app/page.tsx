@@ -5,7 +5,8 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence, type Variants } from 'framer-motion';
-import { readParentPin } from '@/lib/parent-pin';
+import { readParentPin, writeParentPin } from '@/lib/parent-pin';
+import { fetchParentSettings } from '@/lib/supabase-parent-settings';
 
 const containerVariants: Variants = {
   hidden: { opacity: 0 },
@@ -79,8 +80,17 @@ export default function LandingPage() {
     setPinError(false);
   };
 
-  const submitPin = () => {
+  const submitPin = async () => {
     if (pin === readParentPin()) {
+      closePin();
+      router.push('/parent/dashboard');
+      return;
+    }
+    // Local check failed — the PIN may have been changed on another device.
+    // Check Supabase as a fallback and update localStorage if it matches.
+    const remote = await fetchParentSettings();
+    if (remote && pin === remote.pin) {
+      writeParentPin(remote.pin);
       closePin();
       router.push('/parent/dashboard');
     } else {
