@@ -117,6 +117,38 @@ export default function PetCatchGamePage() {
   const idRef = useRef(1);
   const popIdRef = useRef(1);
   const rewardGrantedRef = useRef(false);
+  const arenaRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef = useRef(false);
+
+  const updatePetFromPointer = (clientX: number) => {
+    if (!arenaRef.current) return;
+    const rect = arenaRef.current.getBoundingClientRect();
+    const xPct = ((clientX - rect.left) / rect.width) * 100;
+    const clamped = Math.max(7, Math.min(93, xPct));
+    petXRef.current = clamped;
+    setPetX(clamped);
+  };
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!roundStarted || gameOver) return;
+    e.preventDefault();
+    isDraggingRef.current = true;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    updatePetFromPointer(e.clientX);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingRef.current || !roundStarted || gameOver) return;
+    e.preventDefault();
+    updatePetFromPointer(e.clientX);
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (isDraggingRef.current) {
+      e.preventDefault();
+    }
+    isDraggingRef.current = false;
+  };
 
   useEffect(() => {
     if (!child) return;
@@ -344,9 +376,15 @@ export default function PetCatchGamePage() {
           </div>
 
           <motion.div
-            className="relative h-[620px] max-h-[72vh] overflow-hidden rounded-[32px] border border-white/70 bg-white/70 shadow-2xl backdrop-blur sm:h-[650px] sm:rounded-[40px]"
+            ref={arenaRef}
+            className="relative h-[620px] max-h-[72vh] touch-none overflow-hidden rounded-[32px] border border-white/70 bg-white/70 shadow-2xl backdrop-blur sm:h-[650px] sm:rounded-[40px]"
             animate={ouch ? { x: [-8, 8, -5, 5, 0] } : { x: 0 }}
             transition={{ duration: 0.25 }}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            onLostPointerCapture={handlePointerUp}
           >
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_40%_20%,rgba(186,230,253,0.6),transparent_28%),radial-gradient(circle_at_50%_80%,rgba(255,220,180,0.55),transparent_38%)]" />
             {ouch && <div className="pointer-events-none absolute inset-0 z-20 bg-rose-200/25" />}
@@ -545,7 +583,7 @@ export default function PetCatchGamePage() {
           </div>
 
           <div className="mt-4 text-center text-sm font-semibold text-slate-500">
-            Keyboard: ← → · 60 seconds · no Screen Energy, boss damage, goals, or egg progress
+            Drag anywhere in the game area to move your pet. Keyboard: ← → · 60 seconds · no Screen Energy, boss damage, goals, or egg progress
           </div>
         </div>
       </div>
