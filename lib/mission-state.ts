@@ -7,6 +7,7 @@ import {
   type SupabaseChildState,
   upsertChildStateFromDashboard,
 } from '@/lib/supabase-child-state';
+import { upsertDailyGoalsForChild } from '@/lib/supabase-goals';
 
 export type CompletedMissions = Record<string, boolean>;
 export type CareActionType = 'feed' | 'pat' | 'clean';
@@ -696,6 +697,7 @@ export function setDailyGoalsForChild(
   };
 
   writeDailyGoalsByChild(nextDailyGoals);
+  void upsertDailyGoalsForChild(childId, nextRecord, source);
   return nextRecord;
 }
 

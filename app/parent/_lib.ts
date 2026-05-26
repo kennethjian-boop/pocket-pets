@@ -6,10 +6,18 @@ import {
   dailyMissionTemplates,
   getDailyGoalsForChild,
   getGoalSetupMode,
+  getTodayKey,
   hydrateChildDashboardStateFromSupabase,
   mergeWithDefaultChildState,
   readChildDashboardState,
+  readDailyGoalsByChild,
+  readGoalSetupState,
+  writeDailyGoalsByChild,
+  writeGoalSetupState,
 } from '@/lib/mission-state';
+import { fetchDailyGoalsForChild } from '@/lib/supabase-goals';
+import { fetchBossState } from '@/lib/supabase-boss';
+import { writeBossBattleStateLocal } from '@/lib/boss-battle';
 import { RewardTemplate, defaultRewardTemplates } from '@/lib/reward-templates';
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
@@ -41,14 +49,59 @@ export function buildDashboardStates(readStored: boolean): DashboardStateByChild
 }
 
 export async function buildDashboardStatesFromSupabase(): Promise<DashboardStateByChild> {
-  const entries = await Promise.all(
-    mockChildren.map(async (child) => [
-      child.id,
-      await hydrateChildDashboardStateFromSupabase(child.id, child),
-    ] as const)
-  );
+  const [entries] = await Promise.all([
+    Promise.all(
+      mockChildren.map(async (child) => [
+        child.id,
+        await hydrateChildDashboardStateFromSupabase(child.id, child),
+      ] as const)
+    ),
+    hydrateGoalsFromSupabase(),
+    hydrateBossFromSupabase(),
+  ]);
 
   return Object.fromEntries(entries);
+}
+
+async function hydrateGoalsFromSupabase(): Promise<void> {
+  const today = getTodayKey();
+  await Promise.all(
+    mockChildren.map(async (child) => {
+      const remote = await fetchDailyGoalsForChild(child.id);
+      if (
+        remote &&
+        remote.setupMode !== 'auto' &&
+        remote.date === today &&
+        remote.goalIds.length === 3
+      ) {
+        const current = readDailyGoalsByChild();
+        writeDailyGoalsByChild({
+          ...current,
+          [child.id]: {
+            date: remote.date,
+            source: remote.setupMode,
+            goals: remote.goalIds,
+            previousGoals: remote.previousGoalIds,
+          },
+        });
+        const setupState = readGoalSetupState();
+        writeGoalSetupState({
+          ...setupState,
+          modeByChild: {
+            ...setupState.modeByChild,
+            [child.id]: remote.setupMode,
+          },
+        });
+      }
+    })
+  );
+}
+
+async function hydrateBossFromSupabase(): Promise<void> {
+  const remote = await fetchBossState();
+  if (remote) {
+    writeBossBattleStateLocal(remote);
+  }
 }
 
 export function buildGoalsByChild(readStored: boolean): GoalsByChild {

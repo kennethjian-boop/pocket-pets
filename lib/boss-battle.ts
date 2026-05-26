@@ -1,4 +1,5 @@
 import type { Child } from '@/lib/mock-data';
+import { upsertBossState } from '@/lib/supabase-boss';
 
 export type BossAttackSourceType = 'mission' | 'parent_bonus';
 
@@ -218,12 +219,18 @@ export function readBossBattleState(): BossBattleState {
   }
 }
 
-export function writeBossBattleState(state: BossBattleState) {
+export function writeBossBattleStateLocal(state: BossBattleState) {
   if (typeof window === 'undefined') return;
   window.localStorage.setItem(
     BOSS_BATTLE_STORAGE_KEY,
     JSON.stringify(recalculateBossBattleState(state))
   );
+}
+
+export function writeBossBattleState(state: BossBattleState) {
+  const nextState = recalculateBossBattleState(state);
+  writeBossBattleStateLocal(nextState);
+  void upsertBossState(nextState);
 }
 
 export function addBossAttack(
