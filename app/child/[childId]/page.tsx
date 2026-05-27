@@ -51,7 +51,9 @@ type SyncDebugInfo = {
   goalsIds: string;
   goalsSource: 'supabase' | 'supabase-generated' | 'local-fallback';
   goalsTitles: string;
+  completedStates: string;
   generationHappened: boolean;
+  randomiseHappened: boolean;
   localStorageFallbackUsed: boolean;
   completedGoalIds: string;
   moodSource: string;
@@ -233,7 +235,7 @@ export default function ChildHome() {
       setEggMessage(parsed.eggMessage);
       setComfort(parsed.comfort);
       setMoodUpdatedAt(parsed.moodUpdatedAt);
-      setCompletedMissions(parsed.completedMissions);
+      if (goals) setCompletedMissions(parsed.completedMissions);
       setDailyActionCounts(parsed.dailyActionCounts);
       setLastActionTimestamps(parsed.lastActionTimestamps);
       setPoopEvents(parsed.poopEvents);
@@ -304,7 +306,15 @@ export default function ChildHome() {
         writeChildDashboardState(childId, mergedState);
       }
       const resolvedGoals = capturedGoals?.goals ?? dailyMissionTemplates;
-      applyDashboardState(mergedState, resolvedGoals);
+      const dailyGoalCompletedMissions = capturedGoals?.record.completed;
+      const displayState = dailyGoalCompletedMissions
+        ? {
+            ...mergedState,
+            completedMissions: dailyGoalCompletedMissions,
+            goalsDate: capturedGoals?.record.date ?? getTodayKey(),
+          }
+        : mergedState;
+      applyDashboardState(displayState, resolvedGoals);
       // setDashboardLoaded MUST be set here (post-hydration) not in syncFromStorage.
       // Setting it early causes saveChildDashboardState to fire with stale localStorage
       // values (stars=0 etc) which then race-write to Supabase before the fetch returns.
@@ -325,11 +335,15 @@ export default function ChildHome() {
         goalsIds: capturedGoals?.record.goals.join(', ') ?? 'none',
         goalsSource: capturedGoals?.source ?? 'local-fallback',
         goalsTitles: resolvedGoals.map((g) => g.title).join(' / '),
+        completedStates: capturedGoals?.record.goalItems
+          ?.map((goal) => `${goal.id}:${goal.completed ? 'yes' : 'no'}`)
+          .join(', ') ?? 'none',
         generationHappened: capturedGoals?.generationHappened ?? false,
+        randomiseHappened: false,
         localStorageFallbackUsed: capturedGoals?.localStorageFallbackUsed ?? false,
         completedGoalIds:
-          Object.keys(hydratedState.completedMissions ?? {})
-            .filter((id) => (hydratedState.completedMissions ?? {})[id])
+          Object.keys(displayState.completedMissions ?? {})
+            .filter((id) => (displayState.completedMissions ?? {})[id])
             .join(', ') || 'none',
         moodSource: syncMeta.lastMoodSource,
         moodPercent: syncMeta.lastMoodPercent,
@@ -1378,7 +1392,9 @@ export default function ChildHome() {
                     <p>goals ids: <span className="font-mono">{syncDebug.goalsIds}</span></p>
                     <p>goals source: <span className="font-bold">{syncDebug.goalsSource}</span></p>
                     <p>goals titles: <span className="font-mono">{syncDebug.goalsTitles}</span></p>
+                    <p>completed states: <span className="font-mono">{syncDebug.completedStates}</span></p>
                     <p>generation happened: <span className="font-bold">{syncDebug.generationHappened ? 'yes' : 'no'}</span></p>
+                    <p>randomise happened: <span className="font-bold">{syncDebug.randomiseHappened ? 'yes' : 'no'}</span></p>
                     <p>localStorage fallback used: <span className="font-bold">{syncDebug.localStorageFallbackUsed ? 'yes' : 'no'}</span></p>
                     <p>completed ids: <span className="font-mono">{syncDebug.completedGoalIds}</span></p>
                     <p>mood source: <span className="font-bold">{syncDebug.moodSource}</span></p>

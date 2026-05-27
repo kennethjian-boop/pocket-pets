@@ -1,12 +1,13 @@
 'use client';
 
 import { getSupabaseBrowserClient, hasSupabaseBrowserEnv } from '@/lib/supabase-browser';
-import type { DailyGoalsRecord, GoalSetupMode } from '@/lib/mission-state';
+import type { DailyGoalInstance, DailyGoalsRecord, GoalSetupMode } from '@/lib/mission-state';
 
 type DailyGoalsRow = {
   id?: string | null;
   child_id: string;
   date: string;
+  goals?: unknown[] | null;
   goal_ids: unknown[] | null;
   setup_mode: string;
   previous_goal_ids: unknown[] | null;
@@ -17,6 +18,7 @@ export type SupabaseDailyGoalState = {
   id: string | null;
   childId: string;
   date: string;
+  goals: DailyGoalInstance[];
   goalIds: string[];
   setupMode: GoalSetupMode;
   previousGoalIds: string[];
@@ -24,17 +26,41 @@ export type SupabaseDailyGoalState = {
 };
 
 const VALID_SETUP_MODES = new Set<GoalSetupMode>(['auto', 'manual', 'random']);
-const SELECT_WITH_ID = 'id, child_id, date, goal_ids, setup_mode, previous_goal_ids, updated_at';
+const SELECT_WITH_ID = 'id, child_id, date, goals, goal_ids, setup_mode, previous_goal_ids, updated_at';
 const SELECT = 'child_id, date, goal_ids, setup_mode, previous_goal_ids, updated_at';
 
+function normalizeGoalItem(item: unknown): DailyGoalInstance | null {
+  if (!item || typeof item !== 'object') return null;
+  const goal = item as Partial<DailyGoalInstance>;
+  if (typeof goal.id !== 'string') return null;
+  return {
+    id: goal.id,
+    title: typeof goal.title === 'string' ? goal.title : goal.id,
+    description: typeof goal.description === 'string' ? goal.description : '',
+    category: goal.category,
+    reward: typeof goal.reward === 'number' ? goal.reward : goal.starReward ?? 0,
+    starReward: typeof goal.starReward === 'number' ? goal.starReward : goal.reward ?? 0,
+    bossDamage: typeof goal.bossDamage === 'number' ? goal.bossDamage : 10,
+    completed: goal.completed === true,
+  };
+}
+
 function toSupabaseDailyGoalState(row: DailyGoalsRow): SupabaseDailyGoalState {
+  const goals = Array.isArray(row.goals)
+    ? row.goals.map(normalizeGoalItem).filter((goal): goal is DailyGoalInstance => Boolean(goal))
+    : [];
+  const goalIds = goals.length > 0
+    ? goals.map((goal) => goal.id)
+    : Array.isArray(row.goal_ids)
+      ? row.goal_ids.filter((id): id is string => typeof id === 'string')
+      : [];
+
   return {
     id: row.id ?? null,
     childId: row.child_id,
     date: row.date,
-    goalIds: Array.isArray(row.goal_ids)
-      ? row.goal_ids.filter((id): id is string => typeof id === 'string')
-      : [],
+    goals,
+    goalIds,
     setupMode: VALID_SETUP_MODES.has(row.setup_mode as GoalSetupMode)
       ? (row.setup_mode as GoalSetupMode)
       : 'auto',
@@ -66,7 +92,7 @@ export async function fetchDailyGoalsForChild(
     .limit(1)
     .returns<DailyGoalsRow[]>();
 
-  if (error && error.message.toLowerCase().includes('id')) {
+  if (error && /id|goals/i.test(error.message)) {
     const retry = await supabase
       .from('daily_goals')
       .select(SELECT)
@@ -123,12 +149,14 @@ export async function upsertDailyGoalsForChild(
   );
 
   const supabase = getSupabaseBrowserClient();
+  const goals = record.goalItems ?? [];
   let { data, error } = await supabase
     .from('daily_goals')
     .upsert(
       {
         child_id: childId,
         date: record.date,
+        goals,
         goal_ids: record.goals,
         setup_mode: setupMode,
         previous_goal_ids: record.previousGoals ?? [],
@@ -139,7 +167,7 @@ export async function upsertDailyGoalsForChild(
     .select(SELECT_WITH_ID)
     .single<DailyGoalsRow>();
 
-  if (error && error.message.toLowerCase().includes('id')) {
+  if (error && /id|goals/i.test(error.message)) {
     const retry = await supabase
       .from('daily_goals')
       .upsert(

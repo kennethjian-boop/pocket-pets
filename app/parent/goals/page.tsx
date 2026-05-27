@@ -10,10 +10,10 @@ import {
   getGoalSetupMode,
   goalBank,
   mergeWithDefaultChildState,
-  randomizeDailyGoalsForChild,
+  randomizeAuthoritativeDailyGoalsForChild,
   readChildDashboardState,
   saveChildDashboardState,
-  setDailyGoalsForChild,
+  setAuthoritativeDailyGoalsForChild,
   setGoalSetupMode,
   setMissionCompletion,
   updateSecretEggProgressForGoal,
@@ -254,7 +254,7 @@ export default function GoalsPage() {
 
   // ── Goal randomise ─────────────────────────────────────────────────────────
 
-  const handleRandomizeGoals = (childId: string) => {
+  const handleRandomizeGoals = async (childId: string) => {
     const child = childrenData.find((c) => c.id === childId);
     if (!child) return;
 
@@ -274,8 +274,10 @@ export default function GoalsPage() {
       return;
     }
 
-    const record = randomizeDailyGoalsForChild(childId);
-    const goals = getDailyGoalsForChild(childId);
+    const record = await randomizeAuthoritativeDailyGoalsForChild(childId);
+    const goals = record.goalItems
+      ? record.goalItems.map(({ completed: _completed, ...goal }) => goal)
+      : getDailyGoalsForChild(childId);
     setGoalsByChild((cur) => ({ ...cur, [childId]: goals }));
     setGoalSelections((cur) => ({ ...cur, [childId]: record.goals }));
     setGoalModes((cur) => ({ ...cur, [childId]: 'random' }));
@@ -287,7 +289,7 @@ export default function GoalsPage() {
 
   // ── Save selected goals ────────────────────────────────────────────────────
 
-  const handleSaveSelectedGoals = (childId: string) => {
+  const handleSaveSelectedGoals = async (childId: string) => {
     const child = childrenData.find((c) => c.id === childId);
     if (!child) return;
     const selected = goalSelections[childId] ?? [];
@@ -299,8 +301,10 @@ export default function GoalsPage() {
       showFeedback('Choose 3 different goals before saving.', 'warning');
       return;
     }
-    const record = setDailyGoalsForChild(childId, selected, 'manual');
-    const goals = getDailyGoalsForChild(childId);
+    const record = await setAuthoritativeDailyGoalsForChild(childId, selected, 'manual');
+    const goals = record.goalItems
+      ? record.goalItems.map(({ completed: _completed, ...goal }) => goal)
+      : getDailyGoalsForChild(childId);
     setGoalsByChild((cur) => ({ ...cur, [childId]: goals }));
     setGoalSelections((cur) => ({ ...cur, [childId]: record.goals }));
     setGoalModes((cur) => ({ ...cur, [childId]: 'manual' }));

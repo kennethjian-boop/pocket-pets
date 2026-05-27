@@ -50,7 +50,7 @@ export function buildDashboardStates(readStored: boolean): DashboardStateByChild
 }
 
 export async function buildDashboardStatesFromSupabase(): Promise<DashboardStateByChild> {
-  const [entries] = await Promise.all([
+  const [entries, dailyGoalCompletionByChild] = await Promise.all([
     Promise.all(
       mockChildren.map(async (child) => [
         child.id,
@@ -61,12 +61,21 @@ export async function buildDashboardStatesFromSupabase(): Promise<DashboardState
     hydrateBossFromSupabase(),
   ]);
 
-  return Object.fromEntries(entries);
+  return Object.fromEntries(
+    entries.map(([childId, state]) => [
+      childId,
+      {
+        ...state,
+        completedMissions: dailyGoalCompletionByChild[childId] ?? state.completedMissions,
+        goalsDate: getTodayKey(),
+      },
+    ])
+  );
 }
 
-async function hydrateGoalsFromSupabase(): Promise<void> {
+async function hydrateGoalsFromSupabase(): Promise<Record<string, Record<string, boolean>>> {
   const today = getTodayKey();
-  await Promise.all(
+  const entries = await Promise.all(
     mockChildren.map(async (child) => {
       const resolved = await resolveAuthoritativeDailyGoalsForChild(child.id);
       const remote = resolved.remote;
@@ -95,8 +104,10 @@ async function hydrateGoalsFromSupabase(): Promise<void> {
           },
         });
       }
+      return [child.id, resolved.record.completed ?? {}] as const;
     })
   );
+  return Object.fromEntries(entries);
 }
 
 async function hydrateBossFromSupabase(): Promise<void> {
