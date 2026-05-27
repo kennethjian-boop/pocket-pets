@@ -479,10 +479,13 @@ export default function PetCatchGamePage() {
             </motion.div>
 
             {!roundStarted && !gameOver && (
-              <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/55 p-4 backdrop-blur-sm">
-                <div className="w-full max-w-sm rounded-[36px] border border-white bg-white px-7 py-7 text-center shadow-2xl">
-                  <div className="mx-auto mb-4 flex h-28 w-28 items-center justify-center">
-                    <div className={`relative ${avatar.isSkin ? 'h-28 w-24' : 'h-28 w-28'}`}>
+              <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/55 px-5 py-8 backdrop-blur-sm sm:p-4">
+                <div
+                  className="w-full max-w-[22rem] rounded-[36px] border border-white bg-white text-center shadow-2xl sm:max-w-sm"
+                  style={{ padding: '2rem 1.5rem' }}
+                >
+                  <div className="mx-auto mb-5 flex h-32 w-32 items-center justify-center sm:h-28 sm:w-28">
+                    <div className={`relative ${avatar.isSkin ? 'h-32 w-28 sm:h-28 sm:w-24' : 'h-32 w-32 sm:h-28 sm:w-28'}`}>
                       <Image
                         src={avatar.src}
                         alt={avatar.alt}
@@ -494,7 +497,7 @@ export default function PetCatchGamePage() {
                     </div>
                   </div>
                   <h2 className="text-3xl font-black text-slate-800">Ready to catch?</h2>
-                  <p className="mt-2 text-sm font-semibold text-slate-500">
+                  <p className="mx-auto mt-3 max-w-[16rem] text-base font-bold leading-relaxed text-slate-500 sm:text-sm">
                     {child.name} has {dashboardState.hearts} hearts. Each round costs 2 hearts.
                   </p>
                   {message && (
@@ -506,7 +509,7 @@ export default function PetCatchGamePage() {
                     type="button"
                     onClick={startRound}
                     disabled={!canPlay}
-                    className="mt-5 w-full rounded-3xl bg-slate-800 px-6 py-4 font-black text-white shadow-lg transition active:scale-95 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+                    className="mt-7 flex min-h-16 w-full items-center justify-center rounded-[28px] bg-gradient-to-r from-slate-800 via-violet-700 to-pink-500 px-6 py-5 text-lg font-black leading-tight text-white shadow-xl shadow-pink-200/60 ring-4 ring-pink-100/80 transition active:scale-95 disabled:cursor-not-allowed disabled:bg-none disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none disabled:ring-slate-100 sm:min-h-14 sm:py-4 sm:text-base"
                   >
                     Play Pet Catch - 2 💖
                   </button>
