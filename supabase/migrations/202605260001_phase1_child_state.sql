@@ -41,25 +41,24 @@ drop policy if exists "Pocket Pets MVP public insert children" on public.childre
 drop policy if exists "Pocket Pets MVP public update children" on public.children;
 
 -- MVP note:
--- There is no Supabase auth yet, so these anon policies intentionally allow
--- the browser app to read/write only this small shared-state table.
--- Tighten these when real auth is added.
+-- Auth is currently only an app access gate. Both anon and authenticated roles
+-- can read/write this global MVP shared-state table until ownership is added.
 create policy "Pocket Pets MVP public read children"
 on public.children
 for select
-to anon
+to anon, authenticated
 using (true);
 
 create policy "Pocket Pets MVP public insert children"
 on public.children
 for insert
-to anon
+to anon, authenticated
 with check (true);
 
 create policy "Pocket Pets MVP public update children"
 on public.children
 for update
-to anon
+to anon, authenticated
 using (true)
 with check (true);
 

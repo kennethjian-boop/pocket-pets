@@ -757,6 +757,7 @@ export function writeChildDashboardState(
 }
 
 const lastSupabaseMirrorByChild = new Map<string, string>();
+const remoteHydrationFailedByChild = new Set<string>();
 
 function getSharedStateMirrorKey(state: Partial<ChildDashboardState>) {
   return JSON.stringify({
@@ -779,6 +780,16 @@ function mirrorChildDashboardStateToSupabase(
   state: ChildDashboardState
 ) {
   if (typeof window === 'undefined') return;
+
+  const syncMeta = readChildSupabaseSyncMeta(childId);
+  if (remoteHydrationFailedByChild.has(childId) && !syncMeta.migratedToSupabase) {
+    writeChildSupabaseSyncMeta(childId, {
+      lastSyncSource: 'local-fallback',
+      lastSyncError:
+        'Supabase fetch failed, so local/default fallback was not mirrored to Supabase.',
+    });
+    return;
+  }
 
   const mirrorKey = getSharedStateMirrorKey(state);
   if (lastSupabaseMirrorByChild.get(childId) === mirrorKey) return;
@@ -810,21 +821,6 @@ function mirrorChildDashboardStateToSupabase(
       });
       console.warn('Failed to mirror child state to Supabase.', error);
     });
-}
-
-function isRemoteAtMockDefault(child: Child, remoteState: SupabaseChildState) {
-  const defaultPet = getPetByChildId(child.id)?.pet ?? 'bubbo';
-  return (
-    remoteState.stars === child.stars &&
-    remoteState.hearts === child.hearts &&
-    remoteState.screenEnergy === child.screenEnergy &&
-    remoteState.moodPercent === INITIAL_MOOD_PERCENT &&
-    remoteState.equippedPet === defaultPet &&
-    Object.values(remoteState.equippedSkinByPet).every((skinId) => skinId === null) &&
-    remoteState.ownedPets.length <= 1 &&
-    remoteState.ownedSkins.length === 0 &&
-    remoteState.secretEggState === null
-  );
 }
 
 function applyRemoteMoodDecay(
@@ -914,6 +910,7 @@ export async function hydrateChildDashboardStateFromSupabase(
   const fetchedRemoteState = await fetchChildState(child);
 
   if (!fetchedRemoteState) {
+    remoteHydrationFailedByChild.add(childId);
     writeChildSupabaseSyncMeta(childId, {
       lastSyncSource: 'local-fallback',
       lastSyncError: 'Supabase fetch unavailable. Using localStorage.',
@@ -925,18 +922,8 @@ export async function hydrateChildDashboardStateFromSupabase(
     return localState;
   }
 
+  remoteHydrationFailedByChild.delete(childId);
   const remoteState = applyRemoteMoodDecay(childId, child, fetchedRemoteState);
-
-  if (storedState && !syncMeta.migratedToSupabase && isRemoteAtMockDefault(child, remoteState)) {
-    mirrorChildDashboardStateToSupabase(childId, child, localState);
-    writeChildSupabaseSyncMeta(childId, {
-      migratedToSupabase: true,
-      lastRemoteUpdatedAt: remoteState.updatedAt,
-      lastSyncSource: 'local-seeded-supabase',
-      lastSyncError: null,
-    });
-    return localState;
-  }
 
   const mergedState = mergeSupabaseChildState(localState, remoteState);
   writeChildDashboardState(childId, mergedState);

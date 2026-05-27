@@ -14,6 +14,7 @@ import {
   SecretEggState,
   createSecretEgg,
   readChildDashboardState,
+  readChildSupabaseSyncMeta,
   saveChildDashboardState,
   selectActivePet,
   purchaseSkin,
@@ -44,7 +45,8 @@ export default function RewardShop() {
     if (!child) return;
 
     const applyDashboardState = (
-      stored: ReturnType<typeof mergeWithDefaultChildState>
+      stored: ReturnType<typeof mergeWithDefaultChildState>,
+      loaded = false
     ) => {
       setStars(stored.stars);
       setScreenEnergy(stored.screenEnergy);
@@ -57,13 +59,19 @@ export default function RewardShop() {
         setMessage(stored.eggMessage);
         window.setTimeout(() => setMessage(null), 2000);
       }
-      setDashboardLoaded(true);
+      setDashboardLoaded(loaded);
     };
 
     const hydrateTimer = window.setTimeout(() => {
       const stored = mergeWithDefaultChildState(child, readChildDashboardState(child.id));
-      applyDashboardState(stored);
-      void hydrateChildDashboardStateFromSupabase(child.id, child).then(applyDashboardState);
+      applyDashboardState(stored, false);
+      void hydrateChildDashboardStateFromSupabase(child.id, child).then((hydrated) => {
+        applyDashboardState(hydrated, true);
+        const syncMeta = readChildSupabaseSyncMeta(child.id);
+        if (syncMeta.lastSyncSource === 'local-fallback') {
+          setDashboardLoaded(false);
+        }
+      });
     }, 0);
 
     return () => window.clearTimeout(hydrateTimer);
