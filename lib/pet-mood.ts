@@ -4,6 +4,19 @@ import type { CareActionType, CompletedMissions, DailyActionCounts } from '@/lib
 export type PetMood = 'neutral' | 'happy' | 'sad' | 'sleep';
 export type PetType = Pet['pet'];
 
+export const INITIAL_MOOD_PERCENT = 70;
+export const MIN_MOOD_PERCENT = 30;
+export const MAX_MOOD_PERCENT = 100;
+export const MOOD_DECAY_PERCENT = 10;
+export const MOOD_DECAY_INTERVAL_MS = 12 * 60 * 60 * 1000;
+
+export type MoodDecayResult = {
+  moodPercent: number;
+  moodUpdatedAt: string;
+  decayApplied: boolean;
+  decaySteps: number;
+};
+
 export const petMoodImages: Record<PetType, Record<PetMood, string>> = {
   bubbo: {
     neutral: '/pets/bubbo/moods/neutral.png',
@@ -62,6 +75,45 @@ export function getDisplayMood({
   }
 
   return 'neutral';
+}
+
+export function clampMoodPercent(value: number) {
+  if (!Number.isFinite(value)) return INITIAL_MOOD_PERCENT;
+  return Math.max(MIN_MOOD_PERCENT, Math.min(MAX_MOOD_PERCENT, Math.round(value)));
+}
+
+export function applyMoodDecay(
+  moodPercent: number,
+  moodUpdatedAt: string | null | undefined,
+  now = new Date()
+): MoodDecayResult {
+  const normalizedMood = clampMoodPercent(moodPercent);
+  const parsedUpdatedAt = moodUpdatedAt ? new Date(moodUpdatedAt) : null;
+
+  if (!parsedUpdatedAt || Number.isNaN(parsedUpdatedAt.getTime())) {
+    return {
+      moodPercent: normalizedMood,
+      moodUpdatedAt: now.toISOString(),
+      decayApplied: false,
+      decaySteps: 0,
+    };
+  }
+
+  const elapsedMs = now.getTime() - parsedUpdatedAt.getTime();
+  const decaySteps = Math.max(0, Math.floor(elapsedMs / MOOD_DECAY_INTERVAL_MS));
+  const decayedMood = clampMoodPercent(normalizedMood - decaySteps * MOOD_DECAY_PERCENT);
+  const decayApplied = decayedMood !== normalizedMood;
+
+  return {
+    moodPercent: decayedMood,
+    moodUpdatedAt: decayApplied ? now.toISOString() : parsedUpdatedAt.toISOString(),
+    decayApplied,
+    decaySteps,
+  };
+}
+
+export function boostMoodPercent(currentMood: number, boost: number) {
+  return Math.min(MAX_MOOD_PERCENT, clampMoodPercent(currentMood) + boost);
 }
 
 export function countCompletedMissionsToday(completedMissions: CompletedMissions) {

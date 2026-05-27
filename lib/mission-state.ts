@@ -3,9 +3,17 @@ import { ensureFreshStartLocalReset } from '@/lib/fresh-start-reset';
 import { normalizeScreenEnergy } from '@/lib/screen-energy';
 import { SKIN_ROSTER, VALID_SKIN_IDS, type PetType, type SkinId } from '@/lib/pet-skins';
 import {
+  applyMoodDecay,
+  boostMoodPercent,
+  INITIAL_MOOD_PERCENT,
+  clampMoodPercent,
+  type MoodDecayResult,
+} from '@/lib/pet-mood';
+import {
   fetchChildState,
   mergeSupabaseChildState,
   type SupabaseChildState,
+  updateChildMood,
   upsertChildStateFromDashboard,
 } from '@/lib/supabase-child-state';
 import { upsertDailyGoalsForChild } from '@/lib/supabase-goals';
@@ -79,6 +87,7 @@ export interface ChildDashboardState {
   careResetDate: string;
   patHeartAwarded: boolean;
   goalsDate: string;
+  moodUpdatedAt: string;
 }
 
 export interface SecretEggState {
@@ -342,7 +351,7 @@ export const dailyMissionTemplates: DailyMission[] = goalBank.slice(0, 3).map((g
 }));
 
 const MAX_STARS = 9999;
-const MISSION_COMFORT_REWARD = 10;
+const VERIFIED_GOAL_MOOD_REWARD = 3;
 const DAILY_GOALS_STORAGE_KEY = 'daily-goals-by-child';
 const GOAL_SETUP_STORAGE_KEY = 'daily-goal-setup';
 
@@ -366,14 +375,14 @@ export const careActionConfig: Record<
   pat: {
     dailyLimit: 5,
     cooldownMs: 20 * 1000,
-    comfortBoost: 3,
+    comfortBoost: 5,
     successMessage: '{petName} feels loved!',
     limitMessage: '{petName} feels loved already!',
   },
   clean: {
     dailyLimit: 1,
     cooldownMs: 120 * 1000,
-    comfortBoost: 10,
+    comfortBoost: 8,
     successMessage: '{petName} feels fresh and cozy!',
     limitMessage: '{petName} is already clean and cozy!',
   },
@@ -413,6 +422,11 @@ export interface ChildSupabaseSyncMeta {
   lastSupabaseWriteAt: string | null;
   lastSyncSource: ChildSupabaseSyncSource;
   lastSyncError: string | null;
+  lastMoodSource: string;
+  lastMoodPercent: number;
+  lastMoodUpdatedAt: string | null;
+  lastMoodDecayApplied: boolean;
+  lastMoodDisplayed: number;
 }
 
 const getDefaultChildSupabaseSyncMeta = (): ChildSupabaseSyncMeta => ({
@@ -422,6 +436,11 @@ const getDefaultChildSupabaseSyncMeta = (): ChildSupabaseSyncMeta => ({
   lastSupabaseWriteAt: null,
   lastSyncSource: 'local-fallback',
   lastSyncError: null,
+  lastMoodSource: 'local-fallback',
+  lastMoodPercent: INITIAL_MOOD_PERCENT,
+  lastMoodUpdatedAt: null,
+  lastMoodDecayApplied: false,
+  lastMoodDisplayed: INITIAL_MOOD_PERCENT,
 });
 
 export const getChildSupabaseSyncMetaStorageKey = (childId: string) =>
@@ -474,7 +493,7 @@ export const getDefaultChildDashboardState = (child: Child): ChildDashboardState
   unlockedPets: [getPetByChildId(child.id)?.pet ?? 'bubbo'],
   activeEgg: null,
   eggMessage: null,
-  comfort: 72,
+  comfort: INITIAL_MOOD_PERCENT,
   completedMissions: {},
   ownedSkins: [],
   activeSkins: { ...DEFAULT_ACTIVE_SKINS },
@@ -483,6 +502,7 @@ export const getDefaultChildDashboardState = (child: Child): ChildDashboardState
   careResetDate: getTodayKey(),
   patHeartAwarded: false,
   goalsDate: getTodayKey(),
+  moodUpdatedAt: new Date().toISOString(),
 });
 
 function normalizeUnlockedPets(value: unknown, fallbackPet: PetRosterItem['id']) {
@@ -748,6 +768,8 @@ function getSharedStateMirrorKey(state: Partial<ChildDashboardState>) {
     unlockedPets: state.unlockedPets,
     ownedSkins: state.ownedSkins,
     activeEgg: state.activeEgg,
+    comfort: state.comfort,
+    moodUpdatedAt: state.moodUpdatedAt,
   });
 }
 
@@ -796,12 +818,90 @@ function isRemoteAtMockDefault(child: Child, remoteState: SupabaseChildState) {
     remoteState.stars === child.stars &&
     remoteState.hearts === child.hearts &&
     remoteState.screenEnergy === child.screenEnergy &&
+    remoteState.moodPercent === INITIAL_MOOD_PERCENT &&
     remoteState.equippedPet === defaultPet &&
     Object.values(remoteState.equippedSkinByPet).every((skinId) => skinId === null) &&
     remoteState.ownedPets.length <= 1 &&
     remoteState.ownedSkins.length === 0 &&
     remoteState.secretEggState === null
   );
+}
+
+function applyRemoteMoodDecay(
+  childId: string,
+  child: Child,
+  remoteState: SupabaseChildState
+): SupabaseChildState {
+  const decay = applyMoodDecay(remoteState.moodPercent, remoteState.moodUpdatedAt);
+  const moodSource = decay.decayApplied ? 'supabase-decayed' : 'supabase';
+
+  writeChildSupabaseSyncMeta(childId, {
+    lastMoodSource: moodSource,
+    lastMoodPercent: decay.moodPercent,
+    lastMoodUpdatedAt: decay.moodUpdatedAt,
+    lastMoodDecayApplied: decay.decayApplied,
+    lastMoodDisplayed: decay.moodPercent,
+  });
+
+  if (decay.decayApplied) {
+    void updateChildMood(child, decay.moodPercent, decay.moodUpdatedAt);
+  }
+
+  return {
+    ...remoteState,
+    moodPercent: decay.moodPercent,
+    moodUpdatedAt: decay.moodUpdatedAt,
+  };
+}
+
+export function saveChildMoodToLocalCache(
+  childId: string,
+  child: Child,
+  moodPercent: number,
+  moodUpdatedAt = new Date().toISOString(),
+  decayInfo?: Pick<MoodDecayResult, 'decayApplied'>
+) {
+  const current = mergeWithDefaultChildState(child, readChildDashboardState(childId));
+  const nextState = {
+    ...current,
+    comfort: clampMoodPercent(moodPercent),
+    moodUpdatedAt,
+  };
+  writeChildDashboardState(childId, nextState);
+  writeChildSupabaseSyncMeta(childId, {
+    lastMoodSource: 'supabase-write',
+    lastMoodPercent: nextState.comfort,
+    lastMoodUpdatedAt: nextState.moodUpdatedAt,
+    lastMoodDecayApplied: decayInfo?.decayApplied ?? false,
+    lastMoodDisplayed: nextState.comfort,
+  });
+  return nextState;
+}
+
+export async function syncChildMood(
+  childId: string,
+  child: Child,
+  moodPercent: number,
+  moodUpdatedAt = new Date().toISOString()
+) {
+  const normalizedMood = clampMoodPercent(moodPercent);
+  const remoteState = await updateChildMood(child, normalizedMood, moodUpdatedAt);
+
+  if (remoteState) {
+    return saveChildMoodToLocalCache(
+      childId,
+      child,
+      remoteState.moodPercent,
+      remoteState.moodUpdatedAt
+    );
+  }
+
+  const nextState = saveChildMoodToLocalCache(childId, child, normalizedMood, moodUpdatedAt);
+  writeChildSupabaseSyncMeta(childId, {
+    lastMoodSource: 'local-fallback',
+    lastSyncError: 'Supabase mood write skipped or unavailable.',
+  });
+  return nextState;
 }
 
 export async function hydrateChildDashboardStateFromSupabase(
@@ -811,15 +911,21 @@ export async function hydrateChildDashboardStateFromSupabase(
   const storedState = readChildDashboardState(childId);
   const localState = mergeWithDefaultChildState(child, storedState);
   const syncMeta = readChildSupabaseSyncMeta(childId);
-  const remoteState = await fetchChildState(child);
+  const fetchedRemoteState = await fetchChildState(child);
 
-  if (!remoteState) {
+  if (!fetchedRemoteState) {
     writeChildSupabaseSyncMeta(childId, {
       lastSyncSource: 'local-fallback',
       lastSyncError: 'Supabase fetch unavailable. Using localStorage.',
+      lastMoodSource: 'local-fallback',
+      lastMoodPercent: localState.comfort,
+      lastMoodUpdatedAt: localState.moodUpdatedAt,
+      lastMoodDisplayed: localState.comfort,
     });
     return localState;
   }
+
+  const remoteState = applyRemoteMoodDecay(childId, child, fetchedRemoteState);
 
   if (storedState && !syncMeta.migratedToSupabase && isRemoteAtMockDefault(child, remoteState)) {
     mirrorChildDashboardStateToSupabase(childId, child, localState);
@@ -880,7 +986,7 @@ export function mergeWithDefaultChildState(
     unlockedPets,
     activeEgg: normalizeActiveEgg(stored?.activeEgg),
     eggMessage: stored?.eggMessage ?? defaults.eggMessage,
-    comfort: stored?.comfort ?? defaults.comfort,
+    comfort: clampMoodPercent(stored?.comfort ?? defaults.comfort),
     completedMissions: resetGoalsForNewDay
       ? defaults.completedMissions
       : stored?.completedMissions ?? defaults.completedMissions,
@@ -895,6 +1001,7 @@ export function mergeWithDefaultChildState(
     careResetDate: resetForNewDay ? defaults.careResetDate : stored?.careResetDate ?? defaults.careResetDate,
     patHeartAwarded: resetForNewDay ? false : stored?.patHeartAwarded ?? defaults.patHeartAwarded,
     goalsDate: resetGoalsForNewDay ? defaults.goalsDate : stored?.goalsDate ?? defaults.goalsDate,
+    moodUpdatedAt: stored?.moodUpdatedAt ?? defaults.moodUpdatedAt,
   };
 }
 
@@ -925,6 +1032,8 @@ export function saveChildDashboardState(
     careResetDate: updates.careResetDate ?? current.careResetDate,
     patHeartAwarded: updates.patHeartAwarded ?? current.patHeartAwarded,
     goalsDate: updates.goalsDate ?? current.goalsDate,
+    comfort: clampMoodPercent(updates.comfort ?? current.comfort),
+    moodUpdatedAt: updates.moodUpdatedAt ?? current.moodUpdatedAt,
   };
   writeChildDashboardState(childId, nextState);
   mirrorChildDashboardStateToSupabase(childId, child, nextState);
@@ -951,10 +1060,11 @@ export function setMissionCompletion(
 
   const starReward = mission.starReward ?? mission.reward;
   const stars = clampStars(current.stars + (completed ? starReward : -starReward));
-  const comfort = clampComfort(
-    current.comfort + (completed ? MISSION_COMFORT_REWARD : -MISSION_COMFORT_REWARD)
-  );
-  const nextState = { ...current, completedMissions, stars, comfort };
+  const moodUpdatedAt = new Date().toISOString();
+  const comfort = completed
+    ? boostMoodPercent(current.comfort, VERIFIED_GOAL_MOOD_REWARD)
+    : current.comfort;
+  const nextState = { ...current, completedMissions, stars, comfort, moodUpdatedAt };
   writeChildDashboardState(childId, nextState);
   mirrorChildDashboardStateToSupabase(childId, child, nextState);
   return nextState;

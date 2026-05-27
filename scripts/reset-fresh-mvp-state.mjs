@@ -75,6 +75,8 @@ const freshChildren = [
     owned_skins: [],
     secret_egg_state: null,
     completed_missions: {},
+    mood_percent: 70,
+    mood_updated_at: now,
   },
   {
     child_id: 'child-thea',
@@ -88,6 +90,8 @@ const freshChildren = [
     owned_skins: [],
     secret_egg_state: null,
     completed_missions: {},
+    mood_percent: 70,
+    mood_updated_at: now,
   },
 ];
 

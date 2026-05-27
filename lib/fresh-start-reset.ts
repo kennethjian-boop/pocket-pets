@@ -1,4 +1,4 @@
-const FRESH_START_RESET_VERSION = 'fresh-mvp-2026-05-26-v1';
+const FRESH_START_RESET_VERSION = 'fresh-mvp-2026-05-27-mood-v1';
 const FRESH_START_RESET_STORAGE_KEY = 'pocket-pets-fresh-start-reset-version';
 
 const GAMEPLAY_STORAGE_KEYS_TO_CLEAR = [

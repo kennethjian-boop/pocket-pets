@@ -28,6 +28,7 @@ import {
   readDailyGoalsByChild,
   saveChildDashboardState,
   setActiveSkin,
+  syncChildMood,
   writeChildDashboardState,
   writeDailyGoalsByChild,
 } from '@/lib/mission-state';
@@ -47,6 +48,11 @@ type SyncDebugInfo = {
   goalsSource: 'supabase' | 'local-fallback' | 'default-generated';
   goalsTitles: string;
   completedGoalIds: string;
+  moodSource: string;
+  moodPercent: number;
+  moodUpdatedAt: string | null;
+  moodDecayApplied: boolean;
+  displayedMoodPercent: number;
 };
 import { getSkinById, skinsByPet } from '@/lib/pet-skins';
 import { PetAvatar } from '@/components/PetAvatar';
@@ -55,6 +61,7 @@ import {
   type PetReaction,
 } from '@/components/pets/PetActionOverlay';
 import {
+  boostMoodPercent,
   countCareActionsToday,
   getDisplayMood,
   petMoodImages,
@@ -156,7 +163,8 @@ export default function ChildHome() {
   );
   const [activeEgg, setActiveEgg] = useState<SecretEggState | null>(null);
   const [eggMessage, setEggMessage] = useState<string | null>(null);
-  const [comfort, setComfort] = useState(72);
+  const [comfort, setComfort] = useState(70);
+  const [moodUpdatedAt, setMoodUpdatedAt] = useState<string | null>(null);
   const [missionTemplates, setMissionTemplates] = useState<DailyMission[]>(
     dailyMissionTemplates
   );
@@ -173,6 +181,7 @@ export default function ChildHome() {
   const [activeSkins, setActiveSkins] = useState<Record<PetType, SkinId | null>>({ luna: null, bubbo: null, mochi: null, ember: null });
   const [dashboardLoaded, setDashboardLoaded] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [careWriteInFlight, setCareWriteInFlight] = useState<CareActionType | null>(null);
   const [careReaction, setCareReaction] = useState<PetReaction | null>(null);
   const [comfortPulseKey, setComfortPulseKey] = useState(0);
   const [hourNow, setHourNow] = useState(() => new Date().getHours());
@@ -191,6 +200,7 @@ export default function ChildHome() {
   const reactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reactionIdRef = useRef(0);
   const lastCareStateKeyRef = useRef('');
+  const careWriteInFlightRef = useRef(false);
 
   useEffect(() => {
     if (!child) return;
@@ -210,6 +220,7 @@ export default function ChildHome() {
       setActiveEgg(parsed.activeEgg);
       setEggMessage(parsed.eggMessage);
       setComfort(parsed.comfort);
+      setMoodUpdatedAt(parsed.moodUpdatedAt);
       setCompletedMissions(parsed.completedMissions);
       setDailyActionCounts(parsed.dailyActionCounts);
       setLastActionTimestamps(parsed.lastActionTimestamps);
@@ -313,6 +324,11 @@ export default function ChildHome() {
           Object.keys(hydratedState.completedMissions ?? {})
             .filter((id) => (hydratedState.completedMissions ?? {})[id])
             .join(', ') || 'none',
+        moodSource: syncMeta.lastMoodSource,
+        moodPercent: syncMeta.lastMoodPercent,
+        moodUpdatedAt: syncMeta.lastMoodUpdatedAt,
+        moodDecayApplied: syncMeta.lastMoodDecayApplied,
+        displayedMoodPercent: hydratedState.comfort,
       });
     });
 
@@ -369,7 +385,6 @@ export default function ChildHome() {
       activePetType,
       activeEgg,
       eggMessage,
-      comfort,
       dailyActionCounts,
       lastActionTimestamps,
       careResetDate,
@@ -386,7 +401,6 @@ export default function ChildHome() {
     activePetType,
     activeEgg,
     eggMessage,
-    comfort,
     dailyActionCounts,
     lastActionTimestamps,
     careResetDate,
@@ -471,7 +485,10 @@ export default function ChildHome() {
     }, blocked ? 900 : 1200);
   };
 
-  const performCareAction = (type: CareActionType, now: number) => {
+  const performCareAction = async (type: CareActionType) => {
+    if (!child || careWriteInFlightRef.current) return;
+
+    const now = Date.now();
     const config = careActionConfig[type];
     const usedToday = dailyActionCounts[type] ?? 0;
     const storedLastUsedAt = lastActionTimestamps[type] ?? 0;
@@ -491,7 +508,10 @@ export default function ChildHome() {
       return;
     }
 
-    const awardsHeart = type === 'pat' && !patHeartAwarded;
+    careWriteInFlightRef.current = true;
+    setCareWriteInFlight(type);
+    const moodUpdatedAtNow = new Date().toISOString();
+    const nextMood = boostMoodPercent(comfort, config.comfortBoost);
 
     setDailyActionCounts((current) => ({
       ...current,
@@ -501,12 +521,30 @@ export default function ChildHome() {
       ...current,
       [type]: now,
     }));
-    setComfort((prev) => clamp(prev + config.comfortBoost, 0, 100));
+    setComfort(nextMood);
+    setMoodUpdatedAt(moodUpdatedAtNow);
     setComfortPulseKey((current) => current + 1);
 
-    if (awardsHeart) {
-      setHearts((prev) => clamp(prev + 1, 0, 9999));
-      setPatHeartAwarded(true);
+    try {
+      const syncedState = await syncChildMood(childId, child, nextMood, moodUpdatedAtNow);
+      setComfort(syncedState.comfort);
+      setMoodUpdatedAt(syncedState.moodUpdatedAt);
+      const syncMeta = readChildSupabaseSyncMeta(childId);
+      setSyncDebug((current) =>
+        current
+          ? {
+              ...current,
+              moodSource: syncMeta.lastMoodSource,
+              moodPercent: syncMeta.lastMoodPercent,
+              moodUpdatedAt: syncMeta.lastMoodUpdatedAt,
+              moodDecayApplied: syncMeta.lastMoodDecayApplied,
+              displayedMoodPercent: syncedState.comfort,
+            }
+          : current
+      );
+    } finally {
+      careWriteInFlightRef.current = false;
+      setCareWriteInFlight(null);
     }
 
     showFeedback(config.successMessage.replace('{petName}', activePetName));
@@ -514,7 +552,7 @@ export default function ChildHome() {
       type,
       false,
       reactionSpeech[type],
-      `+${config.comfortBoost} Comfort${awardsHeart ? '  +1 Heart' : ''}`
+      `+${config.comfortBoost} Mood`
     );
   };
 
@@ -847,7 +885,7 @@ export default function ChildHome() {
                   <h3 className="mt-2 text-2xl font-bold text-slate-900">{moodStatusMessage}</h3>
                 </div>
                 <span className="rounded-full bg-emerald-100 px-4 py-2 text-sm font-semibold text-emerald-800">
-                  Comfort {comfort}%
+                  Mood {comfort}%
                 </span>
               </div>
               <div className="mt-5 space-y-4 rounded-[24px] bg-slate-50 p-5 shadow-sm">
@@ -969,7 +1007,8 @@ export default function ChildHome() {
                   whileTap={{ scale: 0.98 }}
                   animate={getCareButtonAnimation('feed')}
                   transition={{ duration: 0.28, ease: 'easeOut' }}
-                  onClick={(event) => performCareAction('feed', event.timeStamp)}
+                  disabled={careWriteInFlight !== null}
+                  onClick={() => void performCareAction('feed')}
                   className="group rounded-[28px] border border-amber-100 bg-gradient-to-br from-yellow-50 to-amber-50 p-5 text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
                 >
                   <div className="flex items-center gap-3">
@@ -988,7 +1027,8 @@ export default function ChildHome() {
                   whileTap={{ scale: 0.98 }}
                   animate={getCareButtonAnimation('pat')}
                   transition={{ duration: 0.28, ease: 'easeOut' }}
-                  onClick={(event) => performCareAction('pat', event.timeStamp)}
+                  disabled={careWriteInFlight !== null}
+                  onClick={() => void performCareAction('pat')}
                   className="group rounded-[28px] border border-pink-100 bg-gradient-to-br from-pink-50 to-rose-50 p-5 text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
                 >
                   <div className="flex items-center gap-3">
@@ -1007,7 +1047,8 @@ export default function ChildHome() {
                   whileTap={{ scale: 0.98 }}
                   animate={getCareButtonAnimation('clean')}
                   transition={{ duration: 0.28, ease: 'easeOut' }}
-                  onClick={(event) => performCareAction('clean', event.timeStamp)}
+                  disabled={careWriteInFlight !== null}
+                  onClick={() => void performCareAction('clean')}
                   className="group rounded-[28px] border border-cyan-100 bg-gradient-to-br from-cyan-50 to-sky-50 p-5 text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
                 >
                   <div className="flex items-center gap-3">
@@ -1212,6 +1253,11 @@ export default function ChildHome() {
                     <p>goals source: <span className="font-bold">{syncDebug.goalsSource}</span></p>
                     <p>goals titles: <span className="font-mono">{syncDebug.goalsTitles}</span></p>
                     <p>completed ids: <span className="font-mono">{syncDebug.completedGoalIds}</span></p>
+                    <p>mood source: <span className="font-bold">{syncDebug.moodSource}</span></p>
+                    <p>mood_percent: <span className="font-bold">{syncDebug.moodPercent}</span></p>
+                    <p>mood_updated_at: <span className="font-mono">{syncDebug.moodUpdatedAt ?? 'none'}</span></p>
+                    <p>decay applied: <span className="font-bold">{syncDebug.moodDecayApplied ? 'yes' : 'no'}</span></p>
+                    <p>final displayed mood: <span className="font-bold">{syncDebug.displayedMoodPercent}</span></p>
                   </div>
                 ) : (
                   <p className="text-blue-500 italic">Hydrating from Supabase…</p>

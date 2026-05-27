@@ -9,6 +9,7 @@ import {
 } from '@/lib/pet-skins';
 import { normalizeScreenEnergy } from '@/lib/screen-energy';
 import type { ChildDashboardState, SecretEggState } from '@/lib/mission-state';
+import { INITIAL_MOOD_PERCENT, clampMoodPercent } from '@/lib/pet-mood';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -26,6 +27,8 @@ export type SupabaseChildState = {
   secretEggState: SecretEggState | null;
   // Phase 3 — verification state
   completedMissions: Record<string, boolean>;
+  moodPercent: number;
+  moodUpdatedAt: string;
   updatedAt: string;
 };
 
@@ -45,6 +48,8 @@ type ChildrenRow = {
   secret_egg_state: Record<string, unknown> | null;
   // Phase 3
   completed_missions: Record<string, unknown> | null;
+  mood_percent: number | null;
+  mood_updated_at: string | null;
   updated_at: string;
 };
 
@@ -58,7 +63,7 @@ const VALID_PETS = new Set<PetRosterItem['id']>(['luna', 'bubbo', 'mochi', 'embe
 
 // Single source of truth for the SELECT column list — update here to add columns.
 const SELECT_COLUMNS =
-  'child_id, display_name, stars, hearts, screen_energy, equipped_pet, equipped_skin_by_pet, owned_pets, owned_skins, secret_egg_state, completed_missions, updated_at';
+  'child_id, display_name, stars, hearts, screen_energy, equipped_pet, equipped_skin_by_pet, owned_pets, owned_skins, secret_egg_state, completed_missions, mood_percent, mood_updated_at, updated_at';
 
 // ─── Normalizers ─────────────────────────────────────────────────────────────
 
@@ -157,6 +162,8 @@ function toSupabaseChildState(row: ChildrenRow, child: Child): SupabaseChildStat
     ownedSkins: normalizeOwnedSkinsArray(row.owned_skins),
     secretEggState: normalizeSecretEggState(row.secret_egg_state),
     completedMissions: normalizeCompletedMissions(row.completed_missions),
+    moodPercent: clampMoodPercent(row.mood_percent ?? INITIAL_MOOD_PERCENT),
+    moodUpdatedAt: row.mood_updated_at ?? row.updated_at,
     updatedAt: row.updated_at,
   };
 }
@@ -178,6 +185,8 @@ function toChildrenUpsert(child: Child, state: Partial<ChildDashboardState>) {
     owned_skins: state.ownedSkins ?? [],
     secret_egg_state: state.activeEgg ?? null,
     completed_missions: state.completedMissions ?? {},
+    mood_percent: clampMoodPercent(state.comfort ?? INITIAL_MOOD_PERCENT),
+    mood_updated_at: state.moodUpdatedAt ?? new Date().toISOString(),
   };
 }
 
@@ -206,6 +215,8 @@ export function mergeSupabaseChildState(
     activeEgg: remoteState.secretEggState ?? localState.activeEgg,
     // Phase 3 — remote wins: parent verification must reflect across devices
     completedMissions: remoteState.completedMissions,
+    comfort: remoteState.moodPercent,
+    moodUpdatedAt: remoteState.moodUpdatedAt,
   };
 }
 
@@ -340,6 +351,36 @@ export async function updateEquippedSkin(
 
   if (error) {
     console.warn('Unable to update Supabase equipped skin.', error.message);
+    return null;
+  }
+
+  return data ? toSupabaseChildState(data, child) : null;
+}
+
+export async function updateChildMood(
+  child: Child,
+  moodPercent: number,
+  moodUpdatedAt = new Date().toISOString()
+) {
+  if (!hasSupabaseBrowserEnv()) return null;
+
+  const supabase = getSupabaseBrowserClient();
+  const { data, error } = await supabase
+    .from('children')
+    .upsert(
+      {
+        child_id: child.id,
+        display_name: child.name,
+        mood_percent: clampMoodPercent(moodPercent),
+        mood_updated_at: moodUpdatedAt,
+      },
+      { onConflict: 'child_id' }
+    )
+    .select(SELECT_COLUMNS)
+    .single<ChildrenRow>();
+
+  if (error) {
+    console.warn('Unable to update Supabase child mood.', error.message);
     return null;
   }
 

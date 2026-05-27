@@ -11,6 +11,8 @@ create table if not exists public.children (
   screen_energy integer not null default 0 check (screen_energy >= 0),
   equipped_pet text not null default 'bubbo',
   equipped_skin_by_pet jsonb not null default '{}'::jsonb,
+  mood_percent integer not null default 70 check (mood_percent >= 30 and mood_percent <= 100),
+  mood_updated_at timestamptz not null default now(),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -68,9 +70,11 @@ insert into public.children (
   hearts,
   screen_energy,
   equipped_pet,
-  equipped_skin_by_pet
+  equipped_skin_by_pet,
+  mood_percent,
+  mood_updated_at
 )
 values
-  ('child-ansel', 'Ansel', 42, 3, 3, 'bubbo', '{}'::jsonb),
-  ('child-thea', 'Thea', 38, 5, 4, 'luna', '{}'::jsonb)
+  ('child-ansel', 'Ansel', 42, 3, 3, 'bubbo', '{}'::jsonb, 70, now()),
+  ('child-thea', 'Thea', 38, 5, 4, 'luna', '{}'::jsonb, 70, now())
 on conflict (child_id) do nothing;
