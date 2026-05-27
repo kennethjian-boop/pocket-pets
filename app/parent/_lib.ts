@@ -19,7 +19,7 @@ import {
 import { fetchDailyGoalsForChild } from '@/lib/supabase-goals';
 import { fetchBossState } from '@/lib/supabase-boss';
 import { writeBossBattleStateLocal } from '@/lib/boss-battle';
-import { RewardTemplate, defaultRewardTemplates } from '@/lib/reward-templates';
+import { RewardTemplate, defaultRewardTemplates, normalizeRewardTemplate } from '@/lib/reward-templates';
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
 
@@ -136,8 +136,12 @@ export function loadSavedRewardTemplates(): RewardTemplate[] {
     const parsed = JSON.parse(stored) as RewardTemplate[];
     const defaultIds = new Set(defaultRewardTemplates.map((t) => t.id));
     const storedById = new Map(parsed.map((t) => [t.id, t]));
-    const defaults = defaultRewardTemplates.map((def) => storedById.get(def.id) ?? def);
-    const customs = parsed.filter((t) => !defaultIds.has(t.id));
+    const defaults = defaultRewardTemplates.map((def) =>
+      normalizeRewardTemplate(storedById.get(def.id) ?? def)
+    );
+    const customs = parsed
+      .filter((t) => !defaultIds.has(t.id))
+      .map(normalizeRewardTemplate);
     return [...defaults, ...customs];
   } catch {
     return defaultRewardTemplates;

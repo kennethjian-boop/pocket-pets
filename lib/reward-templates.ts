@@ -125,6 +125,13 @@ export function getRewardDelta(template: RewardTemplate) {
   return template.rewardType === 'deduction' ? -template.amount : template.amount;
 }
 
+export function normalizeRewardTemplate(t: RewardTemplate): RewardTemplate {
+  if (t.icon) return t;
+  const fallback =
+    t.rewardType === 'deduction' ? '⚠️' : (currencyEmoji[t.currencyType] ?? '⭐');
+  return { ...t, icon: fallback };
+}
+
 export function getRewardTemplate(id: string): RewardTemplate | undefined {
   return defaultRewardTemplates.find((template) => template.id === id);
 }

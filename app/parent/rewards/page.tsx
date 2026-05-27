@@ -106,6 +106,7 @@ export default function RewardsPage() {
   );
   const [rewardTemplates, setRewardTemplates] = useState<RewardTemplate[]>(defaultRewardTemplates);
   const [activeTab, setActiveTab] = useState<string>(mockChildren[0]?.id ?? 'templates');
+  const [newIcon, setNewIcon] = useState('');
   const [newLabel, setNewLabel] = useState('');
   const [newCategory, setNewCategory] = useState<NewTemplateCategory>('stars-positive');
   const [newAmount, setNewAmount] = useState('1');
@@ -226,7 +227,7 @@ export default function RewardsPage() {
     );
   };
 
-  const handleTemplateEdit = (id: string, field: 'label' | 'amount', value: string) => {
+  const handleTemplateEdit = (id: string, field: 'icon' | 'label' | 'amount', value: string) => {
     setRewardTemplates((cur) => {
       const next = cur.map((t) =>
         t.id === id
@@ -260,7 +261,7 @@ export default function RewardsPage() {
       const newTemplate: RewardTemplate = {
         id: getNextCustomTemplateId(cur),
         label,
-        icon: selected.icon,
+        icon: newIcon.trim() || selected.icon,
         amount,
         currencyType: selected.currencyType,
         rewardType: selected.rewardType,
@@ -269,6 +270,7 @@ export default function RewardsPage() {
       saveRewardTemplates(next);
       return next;
     });
+    setNewIcon('');
     setNewLabel('');
     setNewAmount('1');
     setAddError('');
@@ -445,16 +447,25 @@ export default function RewardsPage() {
                   ➕ Add Custom Reward
                 </p>
                 <div className="space-y-2">
-                  <input
-                    type="text"
-                    value={newLabel}
-                    onChange={(e) => {
-                      setNewLabel(e.target.value);
-                      setAddError('');
-                    }}
-                    placeholder="Label (e.g. Homework Hero)"
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 focus:outline-none focus:ring-1 focus:ring-purple-300"
-                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newIcon}
+                      onChange={(e) => setNewIcon(e.target.value)}
+                      placeholder="⭐"
+                      className="w-14 shrink-0 rounded-xl border border-slate-200 bg-white px-2 py-2 text-center text-base font-bold text-slate-800 focus:outline-none focus:ring-1 focus:ring-purple-300"
+                    />
+                    <input
+                      type="text"
+                      value={newLabel}
+                      onChange={(e) => {
+                        setNewLabel(e.target.value);
+                        setAddError('');
+                      }}
+                      placeholder="Label (e.g. Homework Hero)"
+                      className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 focus:outline-none focus:ring-1 focus:ring-purple-300"
+                    />
+                  </div>
                   <div className="flex gap-2">
                     <select
                       value={newCategory}
@@ -511,9 +522,14 @@ export default function RewardsPage() {
                           key={template.id}
                           className="flex items-center gap-2 rounded-2xl border border-slate-100 bg-slate-50 p-2.5"
                         >
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white text-base shadow-sm">
-                            {template.icon}
-                          </span>
+                          <input
+                            type="text"
+                            value={template.icon}
+                            onChange={(e) =>
+                              handleTemplateEdit(template.id, 'icon', e.target.value)
+                            }
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-center text-base shadow-sm focus:outline-none focus:ring-1 focus:ring-purple-300"
+                          />
                           <input
                             type="text"
                             value={template.label}
