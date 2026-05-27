@@ -10,22 +10,27 @@ import {
   DailyActionCounts,
   DailyMission,
   LastActionTimestamps,
+  PoopEvent,
   SecretEggState,
   SkinId,
   PetType,
+  clearPoopEvents,
   clearEggMessage,
   careActionConfig,
   dailyMissionTemplates,
+  getPoopPenaltyInfo,
   getDailyGoalsForChild,
   getDailyGoalsStorageKey,
   getDefaultDailyActionCounts,
   getDefaultLastActionTimestamps,
+  getUnclearedPoopEvents,
   getTodayKey,
   hydrateChildDashboardStateFromSupabase,
   mergeWithDefaultChildState,
   readChildDashboardState,
   readChildSupabaseSyncMeta,
   readDailyGoalsByChild,
+  reconcilePoopEvents,
   saveChildDashboardState,
   setActiveSkin,
   syncChildMood,
@@ -53,6 +58,11 @@ type SyncDebugInfo = {
   moodUpdatedAt: string | null;
   moodDecayApplied: boolean;
   displayedMoodPercent: number;
+  poopPresent: boolean;
+  unclearedPoopCount: number;
+  oldestPoopTime: string | null;
+  poopPenaltyApplied: boolean;
+  poopPenaltyAmount: number;
 };
 import { getSkinById, skinsByPet } from '@/lib/pet-skins';
 import { PetAvatar } from '@/components/PetAvatar';
@@ -175,6 +185,7 @@ export default function ChildHome() {
   const [lastActionTimestamps, setLastActionTimestamps] = useState<LastActionTimestamps>(
     getDefaultLastActionTimestamps
   );
+  const [poopEvents, setPoopEvents] = useState<PoopEvent[]>([]);
   const [careResetDate, setCareResetDate] = useState('');
   const [patHeartAwarded, setPatHeartAwarded] = useState(false);
   const [ownedSkins, setOwnedSkins] = useState<SkinId[]>([]);
@@ -224,6 +235,7 @@ export default function ChildHome() {
       setCompletedMissions(parsed.completedMissions);
       setDailyActionCounts(parsed.dailyActionCounts);
       setLastActionTimestamps(parsed.lastActionTimestamps);
+      setPoopEvents(parsed.poopEvents);
       setCareResetDate(parsed.careResetDate);
       setPatHeartAwarded(parsed.patHeartAwarded);
       setOwnedSkins(parsed.ownedSkins);
@@ -250,6 +262,7 @@ export default function ChildHome() {
       date: string;
       actionCounts: DailyActionCounts;
       lastTimestamps: LastActionTimestamps;
+      poopEvents: PoopEvent[];
       patHeartAwarded: boolean;
     } | null = null;
 
@@ -279,19 +292,28 @@ export default function ChildHome() {
     ]).then(([hydratedState]) => {
       const today = getTodayKey();
       // If Supabase has valid care state for today, overlay it on the hydrated state.
+      // Older Supabase care rows can still carry uncleared poop events for penalty sync,
+      // but their daily action counts must not carry into a new day.
       // Writing back to localStorage prevents the 1-second syncFromStorage interval
       // from re-reading stale care counts from the old local cache.
+      const syncedPoopEvents = capturedCareState
+        ? reconcilePoopEvents(capturedCareState.poopEvents)
+        : hydratedState.poopEvents;
       const mergedState =
         capturedCareState && capturedCareState.date === today
           ? {
               ...hydratedState,
               dailyActionCounts: capturedCareState.actionCounts,
               lastActionTimestamps: capturedCareState.lastTimestamps,
+              poopEvents: syncedPoopEvents,
               patHeartAwarded: capturedCareState.patHeartAwarded,
               careResetDate: today,
             }
-          : hydratedState;
-      if (capturedCareState && capturedCareState.date === today) {
+          : {
+              ...hydratedState,
+              poopEvents: syncedPoopEvents,
+            };
+      if (capturedCareState) {
         writeChildDashboardState(childId, mergedState);
       }
       // Safe to call getDailyGoalsForChild here: Supabase goals are now in localStorage.
@@ -304,6 +326,7 @@ export default function ChildHome() {
       const syncMeta = readChildSupabaseSyncMeta(childId);
       const todayKey = getTodayKey();
       const storedGoals = readDailyGoalsByChild()[childId];
+      const poopPenalty = getPoopPenaltyInfo(mergedState.poopEvents);
       const goalsSource: SyncDebugInfo['goalsSource'] = capturedGoals
         ? 'supabase'
         : storedGoals?.date === todayKey && storedGoals.goals.length > 0
@@ -328,7 +351,12 @@ export default function ChildHome() {
         moodPercent: syncMeta.lastMoodPercent,
         moodUpdatedAt: syncMeta.lastMoodUpdatedAt,
         moodDecayApplied: syncMeta.lastMoodDecayApplied,
-        displayedMoodPercent: hydratedState.comfort,
+        displayedMoodPercent: clamp(hydratedState.comfort - poopPenalty.penaltyAmount, 30, 100),
+        poopPresent: poopPenalty.unclearedCount > 0,
+        unclearedPoopCount: poopPenalty.unclearedCount,
+        oldestPoopTime: poopPenalty.oldestPoopTime,
+        poopPenaltyApplied: poopPenalty.penaltyApplied,
+        poopPenaltyAmount: poopPenalty.penaltyAmount,
       });
     });
 
@@ -361,11 +389,13 @@ export default function ChildHome() {
       saveChildDashboardState(childId, child, {
         dailyActionCounts: resetCounts,
         lastActionTimestamps: resetTimestamps,
+        poopEvents: [],
         careResetDate: resetDate,
         patHeartAwarded: false,
       });
       setDailyActionCounts(resetCounts);
       setLastActionTimestamps(resetTimestamps);
+      setPoopEvents([]);
       setCareResetDate(resetDate);
       setPatHeartAwarded(false);
       setFeedbackMessage('Care actions reset for testing.');
@@ -387,6 +417,7 @@ export default function ChildHome() {
       eggMessage,
       dailyActionCounts,
       lastActionTimestamps,
+      poopEvents,
       careResetDate,
       patHeartAwarded,
       ownedSkins,
@@ -403,6 +434,7 @@ export default function ChildHome() {
     eggMessage,
     dailyActionCounts,
     lastActionTimestamps,
+    poopEvents,
     careResetDate,
     patHeartAwarded,
     ownedSkins,
@@ -411,16 +443,17 @@ export default function ChildHome() {
 
   useEffect(() => {
     if (!dashboardLoaded) return;
-    const careKey = JSON.stringify({ dailyActionCounts, lastActionTimestamps, patHeartAwarded });
+    const careKey = JSON.stringify({ dailyActionCounts, lastActionTimestamps, poopEvents, patHeartAwarded });
     if (lastCareStateKeyRef.current === careKey) return;
     lastCareStateKeyRef.current = careKey;
     void upsertCareStateForChild(childId, {
       date: getTodayKey(),
       actionCounts: dailyActionCounts,
       lastTimestamps: lastActionTimestamps,
+      poopEvents,
       patHeartAwarded,
     });
-  }, [childId, dashboardLoaded, dailyActionCounts, lastActionTimestamps, patHeartAwarded]);
+  }, [childId, dashboardLoaded, dailyActionCounts, lastActionTimestamps, poopEvents, patHeartAwarded]);
 
   useEffect(() => {
     return () => {
@@ -450,6 +483,10 @@ export default function ChildHome() {
   const activePetDescription =
     PET_ROSTER.find((rosterPet) => rosterPet.id === activePetType)?.description ??
     'A gentle creature that loves soft play and cozy moments.';
+  const poopPenalty = getPoopPenaltyInfo(poopEvents);
+  const unclearedPoopEvents = getUnclearedPoopEvents(poopEvents);
+  const hasPoop = unclearedPoopEvents.length > 0;
+  const displayedComfort = clamp(comfort - poopPenalty.penaltyAmount, 30, 100);
 
   const showFeedback = (message: string) => {
     setFeedbackMessage(message);
@@ -511,7 +548,8 @@ export default function ChildHome() {
     careWriteInFlightRef.current = true;
     setCareWriteInFlight(type);
     const moodUpdatedAtNow = new Date().toISOString();
-    const nextMood = boostMoodPercent(comfort, config.comfortBoost);
+    const nextMood = boostMoodPercent(displayedComfort, config.comfortBoost);
+    const nextPoopEvents = type === 'clean' ? clearPoopEvents(poopEvents) : poopEvents;
 
     setDailyActionCounts((current) => ({
       ...current,
@@ -521,6 +559,9 @@ export default function ChildHome() {
       ...current,
       [type]: now,
     }));
+    if (type === 'clean') {
+      setPoopEvents(nextPoopEvents);
+    }
     setComfort(nextMood);
     setMoodUpdatedAt(moodUpdatedAtNow);
     setComfortPulseKey((current) => current + 1);
@@ -539,6 +580,11 @@ export default function ChildHome() {
               moodUpdatedAt: syncMeta.lastMoodUpdatedAt,
               moodDecayApplied: syncMeta.lastMoodDecayApplied,
               displayedMoodPercent: syncedState.comfort,
+              poopPresent: getUnclearedPoopEvents(nextPoopEvents).length > 0,
+              unclearedPoopCount: getUnclearedPoopEvents(nextPoopEvents).length,
+              oldestPoopTime: getPoopPenaltyInfo(nextPoopEvents).oldestPoopTime,
+              poopPenaltyApplied: getPoopPenaltyInfo(nextPoopEvents).penaltyApplied,
+              poopPenaltyAmount: getPoopPenaltyInfo(nextPoopEvents).penaltyAmount,
             }
           : current
       );
@@ -551,7 +597,7 @@ export default function ChildHome() {
     triggerCareReaction(
       type,
       false,
-      reactionSpeech[type],
+      type === 'clean' && hasPoop ? 'All tidy again!' : reactionSpeech[type],
       `+${config.comfortBoost} Mood`
     );
   };
@@ -571,14 +617,14 @@ export default function ChildHome() {
   };
 
   const moodStatusMessage =
-    comfort >= 70
+    displayedComfort >= 70
       ? `${activePetName} feels cozy and happy.`
-      : comfort >= 40
+      : displayedComfort >= 40
       ? `${activePetName} feels calm and content.`
       : `${activePetName} could use a little extra care.`;
 
   const petMoodLabel =
-    comfort >= 70 ? 'Happy' : comfort >= 40 ? 'Okay' : 'Needs Care';
+    displayedComfort >= 70 ? 'Happy' : displayedComfort >= 40 ? 'Okay' : 'Needs Care';
 
   const completedMissionCount = missionTemplates.filter(
     (mission) => completedMissions[mission.id],
@@ -595,7 +641,7 @@ export default function ChildHome() {
         hourNow: debugMoodValues.hourNow,
       }
     : {
-        comfort,
+        comfort: displayedComfort,
         completedMissionsToday: completedMissionCount,
         careActionsToday,
         hourNow,
@@ -755,6 +801,11 @@ export default function ChildHome() {
                       variant="image-only"
                       activeSkinId={activeSkins[activePetType as PetType]}
                     />
+                    {hasPoop ? (
+                      <div className="absolute bottom-4 right-4 z-20 rounded-full border border-amber-100 bg-amber-50/95 px-3 py-2 text-2xl shadow-lg md:bottom-5 md:right-5">
+                        <span aria-label="Poop to clean" role="img">💩</span>
+                      </div>
+                    ) : null}
                   </motion.div>
 
                   <AnimatePresence>
@@ -837,7 +888,7 @@ export default function ChildHome() {
                   </div>
                 </div>
                 <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-center text-sm font-extrabold text-emerald-800 shadow-sm md:hidden">
-                  {petMoodLabel} mood · {comfort}%
+                  {petMoodLabel} mood · {displayedComfort}%
                 </div>
                 <div className="hidden gap-3 grid-cols-3 md:grid">
                   <div className="rounded-[20px] bg-gradient-to-br from-violet-50 to-purple-50 p-3.5 shadow-sm">
@@ -904,7 +955,7 @@ export default function ChildHome() {
                   <h3 className="mt-2 text-2xl font-bold text-slate-900">{moodStatusMessage}</h3>
                 </div>
                 <span className="rounded-full bg-emerald-100 px-4 py-2 text-sm font-semibold text-emerald-800">
-                  Mood {comfort}%
+                  Mood {displayedComfort}%
                 </span>
               </div>
               <div className="mt-5 space-y-4 rounded-[24px] bg-slate-50 p-5 shadow-sm">
@@ -915,7 +966,7 @@ export default function ChildHome() {
                     className="h-full rounded-full bg-gradient-to-r from-orange-300 via-pink-300 to-purple-400"
                     initial={false}
                     animate={{
-                      width: `${comfort}%`,
+                      width: `${displayedComfort}%`,
                       boxShadow: [
                         '0 0 0 rgba(251,191,36,0)',
                         '0 0 18px rgba(251,191,36,0.65)',
@@ -927,7 +978,7 @@ export default function ChildHome() {
                 </div>
                 <div className="flex items-center justify-between text-sm text-slate-500">
                   <span>Cozy meter</span>
-                  <span>Mood {comfort}%</span>
+                  <span>Mood {displayedComfort}%</span>
                 </div>
               </div>
             </motion.div>
@@ -1075,6 +1126,9 @@ export default function ChildHome() {
                     <div>
                       <p className="text-lg font-semibold text-slate-900">Clean</p>
                       <p className="mt-1 text-sm text-slate-600">Keep it cozy!</p>
+                      {hasPoop ? (
+                        <p className="mt-1 text-xs font-extrabold text-amber-700">Poop to clean!</p>
+                      ) : null}
                       <p className="mt-1 text-xs font-semibold text-slate-500">
                         {getRemainingCareUses('clean')}/{careActionConfig.clean.dailyLimit} left
                       </p>
@@ -1135,6 +1189,9 @@ export default function ChildHome() {
                     <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white text-3xl shadow-sm">🧼</span>
                     <span>
                       <span className="block text-xl font-black text-slate-900">Clean</span>
+                      {hasPoop ? (
+                        <span className="block text-sm font-extrabold text-amber-700">Poop to clean!</span>
+                      ) : null}
                       <span className="block text-sm font-bold text-slate-500">
                         {getRemainingCareUses('clean')}/{careActionConfig.clean.dailyLimit} left
                       </span>
@@ -1337,6 +1394,11 @@ export default function ChildHome() {
                     <p>mood_updated_at: <span className="font-mono">{syncDebug.moodUpdatedAt ?? 'none'}</span></p>
                     <p>decay applied: <span className="font-bold">{syncDebug.moodDecayApplied ? 'yes' : 'no'}</span></p>
                     <p>final displayed mood: <span className="font-bold">{syncDebug.displayedMoodPercent}</span></p>
+                    <p>poop present: <span className="font-bold">{syncDebug.poopPresent ? 'yes' : 'no'}</span></p>
+                    <p>uncleared poop count: <span className="font-bold">{syncDebug.unclearedPoopCount}</span></p>
+                    <p>oldest poop time: <span className="font-mono">{syncDebug.oldestPoopTime ?? 'none'}</span></p>
+                    <p>poop penalty applied: <span className="font-bold">{syncDebug.poopPenaltyApplied ? 'yes' : 'no'}</span></p>
+                    <p>poop penalty amount: <span className="font-bold">{syncDebug.poopPenaltyAmount}</span></p>
                   </div>
                 ) : (
                   <p className="text-blue-500 italic">Hydrating from Supabase…</p>
@@ -1389,9 +1451,9 @@ export default function ChildHome() {
                 {[
                   ['completedMissionsToday', 'Completed Missions', 0, 3],
                   ['hourNow', 'Fake Hour', 0, 23],
-                  ['feed', 'Feed Count', 0, 2],
+                  ['feed', 'Feed Count', 0, 4],
                   ['pat', 'Pat Count', 0, 5],
-                  ['clean', 'Clean Count', 0, 1],
+                  ['clean', 'Clean Count', 0, 3],
                 ].map(([key, label, min, max]) => (
                   <label key={key} className="grid gap-1">
                     <span className="font-semibold">{label}</span>

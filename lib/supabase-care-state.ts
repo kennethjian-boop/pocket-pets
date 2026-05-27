@@ -4,8 +4,10 @@ import { getSupabaseBrowserClient, hasSupabaseBrowserEnv } from '@/lib/supabase-
 import {
   getDefaultDailyActionCounts,
   getDefaultLastActionTimestamps,
+  normalizePoopEvents,
   type DailyActionCounts,
   type LastActionTimestamps,
+  type PoopEvent,
 } from '@/lib/mission-state';
 
 // ─── Public types ────────────────────────────────────────────────────────────
@@ -15,6 +17,7 @@ export type CareState = {
   date: string;
   actionCounts: DailyActionCounts;
   lastTimestamps: LastActionTimestamps;
+  poopEvents: PoopEvent[];
   patHeartAwarded: boolean;
 };
 
@@ -25,6 +28,7 @@ type CareStateRow = {
   date: string;
   action_counts: Record<string, unknown> | null;
   last_timestamps: Record<string, unknown> | null;
+  poop_events: unknown[] | null;
   pat_heart_awarded: boolean;
   updated_at: string;
 };
@@ -59,11 +63,13 @@ function toCareState(row: CareStateRow): CareState {
     date: row.date,
     actionCounts: normalizeActionCounts(row.action_counts),
     lastTimestamps: normalizeLastTimestamps(row.last_timestamps),
+    poopEvents: normalizePoopEvents(row.poop_events),
     patHeartAwarded: row.pat_heart_awarded === true,
   };
 }
 
-const SELECT = 'child_id, date, action_counts, last_timestamps, pat_heart_awarded, updated_at';
+const SELECT = 'child_id, date, action_counts, last_timestamps, poop_events, pat_heart_awarded, updated_at';
+const LEGACY_SELECT = 'child_id, date, action_counts, last_timestamps, pat_heart_awarded, updated_at';
 
 // ─── Fetch ───────────────────────────────────────────────────────────────────
 
@@ -78,6 +84,17 @@ export async function fetchCareStateForChild(childId: string): Promise<CareState
     .maybeSingle<CareStateRow>();
 
   if (error) {
+    if (error.message.includes('poop_events')) {
+      const legacy = await supabase
+        .from('care_action_state')
+        .select(LEGACY_SELECT)
+        .eq('child_id', childId)
+        .maybeSingle<Omit<CareStateRow, 'poop_events'>>();
+
+      if (!legacy.error && legacy.data) {
+        return toCareState({ ...legacy.data, poop_events: [] });
+      }
+    }
     console.warn('[CareState] Fetch error for', childId, ':', error.message);
     return null;
   }
@@ -102,6 +119,7 @@ export async function upsertCareStateForChild(
         date: state.date,
         action_counts: state.actionCounts,
         last_timestamps: state.lastTimestamps,
+        poop_events: state.poopEvents,
         pat_heart_awarded: state.patHeartAwarded,
         updated_at: new Date().toISOString(),
       },

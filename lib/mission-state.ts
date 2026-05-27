@@ -34,6 +34,13 @@ export type DailyGoalSource = 'manual' | 'random';
 export type DailyActionCounts = Record<CareActionType, number>;
 export type LastActionTimestamps = Record<CareActionType, number>;
 
+export interface PoopEvent {
+  id: string;
+  scheduledAt: string;
+  createdAt: string;
+  cleanedAt: string | null;
+}
+
 export interface DailyMission {
   id: string;
   title: string;
@@ -84,6 +91,7 @@ export interface ChildDashboardState {
   activeSkins: Record<PetType, SkinId | null>;
   dailyActionCounts: DailyActionCounts;
   lastActionTimestamps: LastActionTimestamps;
+  poopEvents: PoopEvent[];
   careResetDate: string;
   patHeartAwarded: boolean;
   goalsDate: string;
@@ -366,29 +374,161 @@ export const careActionConfig: Record<
   }
 > = {
   feed: {
-    dailyLimit: 2,
+    dailyLimit: 4,
     cooldownMs: 60 * 1000,
-    comfortBoost: 8,
+    comfortBoost: 3,
     successMessage: '{petName} enjoyed the yummy treat!',
     limitMessage: '{petName} is full for now!',
   },
   pat: {
     dailyLimit: 5,
     cooldownMs: 20 * 1000,
-    comfortBoost: 5,
+    comfortBoost: 3,
     successMessage: '{petName} feels loved!',
     limitMessage: '{petName} feels loved already!',
   },
   clean: {
-    dailyLimit: 1,
+    dailyLimit: 3,
     cooldownMs: 120 * 1000,
-    comfortBoost: 8,
+    comfortBoost: 5,
     successMessage: '{petName} feels fresh and cozy!',
     limitMessage: '{petName} is already clean and cozy!',
   },
 };
 
 export const getTodayKey = () => new Date().toLocaleDateString('en-CA');
+
+function getSingaporeDateParts(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Singapore',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return {
+    year: byType.year,
+    month: byType.month,
+    day: byType.day,
+  };
+}
+
+export const getSingaporeDateKey = (now = new Date()) => {
+  const { year, month, day } = getSingaporeDateParts(now);
+  return `${year}-${month}-${day}`;
+};
+
+const POOP_SCHEDULE_HOURS = [10, 16] as const;
+const POOP_GRACE_MS = 10 * 60 * 60 * 1000;
+const POOP_PENALTY_PER_HOUR = 3;
+
+function getPoopScheduleForDate(dateKey: string) {
+  return POOP_SCHEDULE_HOURS.map((hour) => {
+    const label = `${hour.toString().padStart(2, '0')}00`;
+    return {
+      id: `poop-${dateKey}-${label}`,
+      scheduledAt: `${dateKey}T${hour.toString().padStart(2, '0')}:00:00+08:00`,
+    };
+  });
+}
+
+function getSingaporeDateKeyFromIso(iso: string) {
+  const parsed = new Date(iso);
+  return Number.isNaN(parsed.getTime()) ? null : getSingaporeDateKey(parsed);
+}
+
+export function normalizePoopEvents(value: unknown): PoopEvent[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item): PoopEvent | null => {
+      if (!item || typeof item !== 'object') return null;
+      const event = item as Partial<PoopEvent>;
+      if (
+        typeof event.id !== 'string' ||
+        typeof event.scheduledAt !== 'string' ||
+        typeof event.createdAt !== 'string'
+      ) {
+        return null;
+      }
+      const scheduledAt = new Date(event.scheduledAt);
+      const createdAt = new Date(event.createdAt);
+      const cleanedAt =
+        typeof event.cleanedAt === 'string' ? new Date(event.cleanedAt) : null;
+      if (
+        Number.isNaN(scheduledAt.getTime()) ||
+        Number.isNaN(createdAt.getTime()) ||
+        (cleanedAt && Number.isNaN(cleanedAt.getTime()))
+      ) {
+        return null;
+      }
+      return {
+        id: event.id,
+        scheduledAt: scheduledAt.toISOString(),
+        createdAt: createdAt.toISOString(),
+        cleanedAt: cleanedAt ? cleanedAt.toISOString() : null,
+      };
+    })
+    .filter((event): event is PoopEvent => Boolean(event))
+    .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+}
+
+export function reconcilePoopEvents(events: PoopEvent[], now = new Date()) {
+  const today = getSingaporeDateKey(now);
+  const normalized = normalizePoopEvents(events);
+  const retained = normalized.filter((event) => {
+    const eventDate = getSingaporeDateKeyFromIso(event.scheduledAt);
+    return !event.cleanedAt || eventDate === today;
+  });
+  const byId = new Map(retained.map((event) => [event.id, event]));
+
+  for (const scheduled of getPoopScheduleForDate(today)) {
+    if (byId.has(scheduled.id)) continue;
+    if (new Date(scheduled.scheduledAt).getTime() > now.getTime()) continue;
+    byId.set(scheduled.id, {
+      id: scheduled.id,
+      scheduledAt: new Date(scheduled.scheduledAt).toISOString(),
+      createdAt: now.toISOString(),
+      cleanedAt: null,
+    });
+  }
+
+  return Array.from(byId.values()).sort(
+    (a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()
+  );
+}
+
+export function clearPoopEvents(events: PoopEvent[], now = new Date()) {
+  return normalizePoopEvents(events).map((event) =>
+    event.cleanedAt ? event : { ...event, cleanedAt: now.toISOString() }
+  );
+}
+
+export function getUnclearedPoopEvents(events: PoopEvent[]) {
+  return normalizePoopEvents(events).filter((event) => !event.cleanedAt);
+}
+
+export function getPoopPenaltyInfo(events: PoopEvent[], now = new Date()) {
+  const uncleared = getUnclearedPoopEvents(events);
+  const oldest = uncleared[0] ?? null;
+  if (!oldest) {
+    return {
+      penaltyApplied: false,
+      penaltyAmount: 0,
+      oldestPoopTime: null as string | null,
+      unclearedCount: 0,
+    };
+  }
+
+  const elapsedAfterGrace = now.getTime() - new Date(oldest.scheduledAt).getTime() - POOP_GRACE_MS;
+  const penaltyHours = Math.max(0, Math.floor(elapsedAfterGrace / (60 * 60 * 1000)));
+  const penaltyAmount = penaltyHours * POOP_PENALTY_PER_HOUR;
+  return {
+    penaltyApplied: penaltyAmount > 0,
+    penaltyAmount,
+    oldestPoopTime: oldest.scheduledAt,
+    unclearedCount: uncleared.length,
+  };
+}
 
 export const getDefaultDailyActionCounts = (): DailyActionCounts => ({
   feed: 0,
@@ -499,6 +639,7 @@ export const getDefaultChildDashboardState = (child: Child): ChildDashboardState
   activeSkins: { ...DEFAULT_ACTIVE_SKINS },
   dailyActionCounts: getDefaultDailyActionCounts(),
   lastActionTimestamps: getDefaultLastActionTimestamps(),
+  poopEvents: reconcilePoopEvents([], new Date()),
   careResetDate: getTodayKey(),
   patHeartAwarded: false,
   goalsDate: getTodayKey(),
@@ -985,6 +1126,7 @@ export function mergeWithDefaultChildState(
     lastActionTimestamps: resetForNewDay
       ? defaults.lastActionTimestamps
       : { ...defaults.lastActionTimestamps, ...stored?.lastActionTimestamps },
+    poopEvents: reconcilePoopEvents(normalizePoopEvents(stored?.poopEvents), new Date()),
     careResetDate: resetForNewDay ? defaults.careResetDate : stored?.careResetDate ?? defaults.careResetDate,
     patHeartAwarded: resetForNewDay ? false : stored?.patHeartAwarded ?? defaults.patHeartAwarded,
     goalsDate: resetGoalsForNewDay ? defaults.goalsDate : stored?.goalsDate ?? defaults.goalsDate,
@@ -1016,6 +1158,9 @@ export function saveChildDashboardState(
     activeSkins: updates.activeSkins ?? current.activeSkins,
     dailyActionCounts: updates.dailyActionCounts ?? current.dailyActionCounts,
     lastActionTimestamps: updates.lastActionTimestamps ?? current.lastActionTimestamps,
+    poopEvents: updates.poopEvents
+      ? reconcilePoopEvents(updates.poopEvents, new Date())
+      : current.poopEvents,
     careResetDate: updates.careResetDate ?? current.careResetDate,
     patHeartAwarded: updates.patHeartAwarded ?? current.patHeartAwarded,
     goalsDate: updates.goalsDate ?? current.goalsDate,
