@@ -119,11 +119,14 @@ export default function PetCatchGamePage() {
   const rewardGrantedRef = useRef(false);
   const arenaRef = useRef<HTMLDivElement>(null);
   const isDraggingRef = useRef(false);
+  const dragStartClientXRef = useRef(0);
+  const dragStartPetXRef = useRef(50);
 
-  const updatePetFromPointer = (clientX: number) => {
+  const updatePetFromDrag = (clientX: number) => {
     if (!arenaRef.current) return;
     const rect = arenaRef.current.getBoundingClientRect();
-    const xPct = ((clientX - rect.left) / rect.width) * 100;
+    const deltaPct = ((clientX - dragStartClientXRef.current) / rect.width) * 100;
+    const xPct = dragStartPetXRef.current + deltaPct;
     const clamped = Math.max(7, Math.min(93, xPct));
     petXRef.current = clamped;
     setPetX(clamped);
@@ -133,14 +136,15 @@ export default function PetCatchGamePage() {
     if (!roundStarted || gameOver) return;
     e.preventDefault();
     isDraggingRef.current = true;
+    dragStartClientXRef.current = e.clientX;
+    dragStartPetXRef.current = petXRef.current;
     e.currentTarget.setPointerCapture(e.pointerId);
-    updatePetFromPointer(e.clientX);
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!isDraggingRef.current || !roundStarted || gameOver) return;
     e.preventDefault();
-    updatePetFromPointer(e.clientX);
+    updatePetFromDrag(e.clientX);
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -377,6 +381,7 @@ export default function PetCatchGamePage() {
 
           <motion.div
             ref={arenaRef}
+            data-pet-catch-arena
             className="relative h-[620px] max-h-[72vh] touch-none overflow-hidden rounded-[32px] border border-white/70 bg-white/70 shadow-2xl backdrop-blur sm:h-[650px] sm:rounded-[40px]"
             animate={ouch ? { x: [-8, 8, -5, 5, 0] } : { x: 0 }}
             transition={{ duration: 0.25 }}
