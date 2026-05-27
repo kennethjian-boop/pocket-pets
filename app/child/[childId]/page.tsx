@@ -689,7 +689,7 @@ export default function ChildHome() {
         <div className="pointer-events-none absolute left-16 top-80 h-10 w-10 rounded-full bg-white/30 blur-2xl" />
         <div className="pointer-events-none absolute left-[72%] top-16 h-2 w-2 rounded-full bg-white/80 shadow-[0_0_16px_rgba(255,255,255,0.65)]" />
         <motion.div
-          className="mx-auto max-w-[1200px] space-y-8 px-6 py-10 sm:px-8 lg:px-8"
+          className="mx-auto max-w-[1200px] space-y-4 px-3 py-5 sm:px-8 sm:py-10 lg:px-8"
         variants={containerVariants}
         initial="hidden"
         animate="visible"
@@ -697,7 +697,7 @@ export default function ChildHome() {
         {/* ===== HEADER ===== */}
         <motion.div
           variants={itemVariants}
-          className="rounded-[28px] border border-white/70 bg-white/85 shadow-sm p-5"
+          className="hidden rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-sm md:block"
         >
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap items-center gap-3">
@@ -735,12 +735,14 @@ export default function ChildHome() {
           </div>
         </motion.div>
 
-        <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)_380px] items-start">
-          <motion.div variants={itemVariants} className={`${cardStyle} p-6`}>
-            <div className="grid gap-5">
+        <div className="grid gap-4 md:gap-6 lg:grid-cols-[320px_minmax(0,1fr)_380px] items-start">
+          <motion.div variants={itemVariants} className={`order-1 ${cardStyle} p-4 md:p-6`}>
+            <div className="grid gap-4 md:gap-5">
               <div>
                 <div className="relative">
                   <motion.div
+                    className="mx-auto max-w-[260px] md:max-w-none"
+                    style={{ margin: '0 auto' }}
                     animate={petReactionAnimation}
                     transition={{ duration: careReaction?.blocked ? 0.35 : 0.65, ease: 'easeOut' }}
                   >
@@ -812,15 +814,32 @@ export default function ChildHome() {
                   </AnimatePresence>
                 </div>
               </div>
-              <div className="space-y-4">
+              <div className="space-y-3 md:space-y-4">
                 <div>
-                  <p className="text-sm uppercase tracking-[0.22em] text-slate-500">Pet Nest</p>
-                  <h2 className="mt-3 text-3xl font-bold text-slate-900">{activePetName}</h2>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                  <p className="hidden text-sm uppercase tracking-[0.22em] text-slate-500 md:block">Pet Nest</p>
+                  <h2 className="mt-2 text-center text-3xl font-bold text-slate-900 md:mt-3 md:text-left">{activePetName}</h2>
+                  <p className="hidden mt-2 text-sm leading-6 text-slate-600 md:block">
                     {activePetDescription}
                   </p>
                 </div>
-                <div className="grid gap-3 grid-cols-3">
+                <div className="grid grid-cols-3 gap-2 md:hidden">
+                  <div className="rounded-2xl bg-amber-50 px-3 py-2 text-center text-sm font-extrabold text-amber-800 shadow-sm">
+                    <div>⭐</div>
+                    <div>{stars}</div>
+                  </div>
+                  <div className="rounded-2xl bg-pink-50 px-3 py-2 text-center text-sm font-extrabold text-pink-800 shadow-sm">
+                    <div>💖</div>
+                    <div>{hearts}</div>
+                  </div>
+                  <div className="rounded-2xl bg-sky-50 px-3 py-2 text-center text-sm font-extrabold text-sky-800 shadow-sm">
+                    <div>📱</div>
+                    <div>{screenEnergy}</div>
+                  </div>
+                </div>
+                <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-center text-sm font-extrabold text-emerald-800 shadow-sm md:hidden">
+                  {petMoodLabel} mood · {comfort}%
+                </div>
+                <div className="hidden gap-3 grid-cols-3 md:grid">
                   <div className="rounded-[20px] bg-gradient-to-br from-violet-50 to-purple-50 p-3.5 shadow-sm">
                     <p className="text-xs font-bold uppercase tracking-wide text-violet-500">Mood</p>
                     <p className="mt-1.5 text-lg font-extrabold text-slate-900 capitalize">{petMoodLabel}</p>
@@ -877,8 +896,8 @@ export default function ChildHome() {
             </div>
           </motion.div>
 
-          <div className="space-y-6">
-            <motion.div variants={itemVariants} className={`${cardStyle} p-6`}>
+          <div className="order-3 space-y-4 md:space-y-6 lg:order-2">
+            <motion.div variants={itemVariants} className={`hidden md:block ${cardStyle} p-6`}>
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-sm font-medium text-slate-500">Pet Status</p>
@@ -913,7 +932,7 @@ export default function ChildHome() {
               </div>
             </motion.div>
 
-            <motion.div variants={itemVariants} className={`${cardStyle} p-6`}>
+            <motion.div variants={itemVariants} className={`hidden md:block ${cardStyle} p-6`}>
               {(() => {
                 const currentSkinId = activeSkins[activePetType as PetType];
                 const activePetSkins = skinsByPet[activePetType as PetType] ?? [];
@@ -993,7 +1012,7 @@ export default function ChildHome() {
               })()}
             </motion.div>
 
-            <motion.div variants={itemVariants} className={`${cardStyle} p-6`}>
+            <motion.div variants={itemVariants} className={`hidden md:block ${cardStyle} p-6`}>
               <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                   <p className="text-sm font-medium text-slate-500">Care Actions</p>
@@ -1069,32 +1088,92 @@ export default function ChildHome() {
                 </div>
               ) : null}
             </motion.div>
+            <motion.div variants={itemVariants} className={`${cardStyle} p-4 md:hidden`}>
+              <details>
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-[24px] bg-white px-4 py-3 text-left">
+                  <div>
+                    <p className="text-sm font-extrabold text-slate-500">Care for pet</p>
+                    <h3 className="text-xl font-black text-slate-900">Spend time with {activePetName}</h3>
+                  </div>
+                  <span className="rounded-full bg-pink-50 px-3 py-1 text-sm font-black text-pink-600">Open</span>
+                </summary>
+                <div className="mt-4 grid gap-3">
+                  <button
+                    type="button"
+                    disabled={careWriteInFlight !== null}
+                    onClick={() => void performCareAction('feed')}
+                    className="flex items-center gap-4 rounded-[24px] border border-amber-100 bg-gradient-to-br from-yellow-50 to-amber-50 p-4 text-left shadow-sm active:scale-[0.99]"
+                  >
+                    <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white text-3xl shadow-sm">🍖</span>
+                    <span>
+                      <span className="block text-xl font-black text-slate-900">Feed</span>
+                      <span className="block text-sm font-bold text-slate-500">
+                        {getRemainingCareUses('feed')}/{careActionConfig.feed.dailyLimit} left
+                      </span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={careWriteInFlight !== null}
+                    onClick={() => void performCareAction('pat')}
+                    className="flex items-center gap-4 rounded-[24px] border border-pink-100 bg-gradient-to-br from-pink-50 to-rose-50 p-4 text-left shadow-sm active:scale-[0.99]"
+                  >
+                    <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white text-3xl shadow-sm">👏</span>
+                    <span>
+                      <span className="block text-xl font-black text-slate-900">Pat</span>
+                      <span className="block text-sm font-bold text-slate-500">
+                        {getRemainingCareUses('pat')}/{careActionConfig.pat.dailyLimit} left
+                      </span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={careWriteInFlight !== null}
+                    onClick={() => void performCareAction('clean')}
+                    className="flex items-center gap-4 rounded-[24px] border border-cyan-100 bg-gradient-to-br from-cyan-50 to-sky-50 p-4 text-left shadow-sm active:scale-[0.99]"
+                  >
+                    <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white text-3xl shadow-sm">🧼</span>
+                    <span>
+                      <span className="block text-xl font-black text-slate-900">Clean</span>
+                      <span className="block text-sm font-bold text-slate-500">
+                        {getRemainingCareUses('clean')}/{careActionConfig.clean.dailyLimit} left
+                      </span>
+                    </span>
+                  </button>
+                </div>
+                {feedbackMessage ? (
+                  <div className="mt-4 rounded-[20px] bg-slate-100 px-4 py-3 text-sm font-bold text-slate-700">
+                    {feedbackMessage}
+                  </div>
+                ) : null}
+              </details>
+            </motion.div>
           </div>
 
-          <div className="space-y-6">
-            <motion.div variants={itemVariants} className={`${cardStyle} p-6`}>
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="order-2 space-y-4 md:space-y-6 lg:order-3">
+            <motion.div variants={itemVariants} className={`${cardStyle} p-4 md:p-6`}>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                 <div>
-                  <p className="text-sm font-medium text-slate-500">Today&apos;s Adventure</p>
-                  <h3 className="mt-2 text-2xl font-bold text-slate-900">Goals for the day</h3>
+                  <p className="hidden text-sm font-medium text-slate-500 md:block">Today&apos;s Adventure</p>
+                  <h3 className="text-2xl font-black text-slate-900 md:mt-2 md:font-bold">Today&apos;s goals</h3>
                 </div>
-                <span className="rounded-full bg-emerald-100 px-4 py-2 text-sm font-semibold text-emerald-800">
+                <span className="rounded-full bg-emerald-100 px-4 py-2 text-sm font-extrabold text-emerald-800 md:font-semibold">
                   {completedMissionCount} / {missionTemplates.length} Completed
                 </span>
               </div>
-              <div className="mt-5 space-y-3">
+              <div className="mt-4 space-y-3 md:mt-5">
                 {missionTemplates.map((mission) => {
                   const completed = completedMissions[mission.id] ?? false;
                   return (
                     <div
                       key={mission.id}
-                      className={`w-full rounded-[28px] border p-4 text-left shadow-sm ${
+                      className={`w-full rounded-[24px] border p-4 text-left shadow-sm md:rounded-[28px] ${
                         completed ? 'border-emerald-200 bg-emerald-50 text-slate-600' : 'border-white/80 bg-slate-50'
                       }`}
                     >
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-3">
-                          <div className={`flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-lg shadow-sm ${
+                          <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-lg shadow-sm md:h-10 md:w-10 ${
                             completed ? 'text-emerald-600' : ''
                           }`}>
                             {completed ? (
@@ -1107,11 +1186,11 @@ export default function ChildHome() {
                             )}
                           </div>
                           <div>
-                            <p className="text-base font-semibold text-slate-900">{mission.title}</p>
-                            <p className="text-xs text-slate-500">{mission.description}</p>
+                            <p className="text-lg font-black leading-tight text-slate-900 md:text-base md:font-semibold">{mission.title}</p>
+                            <p className="mt-1 text-sm font-semibold text-slate-500 md:text-xs md:font-normal">{mission.description}</p>
                           </div>
                         </div>
-                        <span className="rounded-full bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-700">
+                        <span className="shrink-0 rounded-full bg-amber-100 px-3 py-1 text-sm font-extrabold text-amber-700 md:font-semibold">
                           +{mission.starReward ?? mission.reward} ⭐
                         </span>
                       </div>
@@ -1119,22 +1198,22 @@ export default function ChildHome() {
                   );
                 })}
               </div>
-              <p className="mt-4 rounded-[20px] bg-slate-50 px-4 py-3 text-sm font-medium text-slate-600">
+              <p className="mt-4 rounded-[20px] bg-slate-50 px-4 py-3 text-sm font-bold text-slate-600 md:font-medium">
                 Ask a parent to check this when you are done.
               </p>
             </motion.div>
-            <div className="grid gap-6">
+            <div className="grid gap-3 md:gap-6">
               {hearts >= 2 ? (
                 <Link href={`/child/${childId}/pet-catch`} className="group">
-                  <div className="rounded-[32px] bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-                    <div className="flex items-center gap-3">
+                  <div className="rounded-[28px] bg-white p-4 shadow-sm transition active:scale-[0.99] hover:-translate-y-0.5 hover:shadow-md md:rounded-[32px] md:p-5">
+                    <div className="flex items-center gap-4">
                       <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-pink-100 text-3xl">🎮</div>
                       <div>
-                        <h3 className="text-lg font-bold text-slate-900">Play Pet Catch</h3>
-                        <p className="mt-1 text-sm text-slate-600">Spend 2 hearts for a cozy 60-second game.</p>
+                        <h3 className="text-xl font-black text-slate-900 md:text-lg md:font-bold">Play Pet Catch</h3>
+                        <p className="mt-1 text-base font-semibold text-slate-600 md:text-sm md:font-normal">Spend 2 hearts for a cozy 60-second game.</p>
                       </div>
                     </div>
-                    <div className="mt-5 inline-flex rounded-full bg-pink-100 px-4 py-2 text-sm font-semibold text-pink-800">
+                    <div className="mt-5 hidden rounded-full bg-pink-100 px-4 py-2 text-sm font-semibold text-pink-800 md:inline-flex">
                       Play for 2 💖
                     </div>
                   </div>
@@ -1143,44 +1222,44 @@ export default function ChildHome() {
                 <button
                   type="button"
                   onClick={() => showFeedback('You need 2 hearts to play Pet Catch. Ask a parent or earn more hearts first.')}
-                  className="rounded-[32px] bg-white p-5 text-left opacity-80 shadow-sm transition active:scale-[0.99]"
+                  className="rounded-[28px] bg-white p-4 text-left opacity-80 shadow-sm transition active:scale-[0.99] md:rounded-[32px] md:p-5"
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-4">
                     <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-slate-100 text-3xl grayscale">🎮</div>
                     <div>
-                      <h3 className="text-lg font-bold text-slate-900">Play Pet Catch</h3>
-                      <p className="mt-1 text-sm text-slate-600">You need 2 hearts to start a round.</p>
+                      <h3 className="text-xl font-black text-slate-900 md:text-lg md:font-bold">Play Pet Catch</h3>
+                      <p className="mt-1 text-base font-semibold text-slate-600 md:text-sm md:font-normal">You need 2 hearts to start a round.</p>
                     </div>
                   </div>
-                  <div className="mt-5 inline-flex rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-500">
+                  <div className="mt-5 hidden rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-500 md:inline-flex">
                     Need 2 💖
                   </div>
                 </button>
               )}
               <Link href={`/child/${childId}/shop`} className="group">
-                <div className="rounded-[32px] bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-                  <div className="flex items-center gap-3">
+                <div className="rounded-[28px] bg-white p-4 shadow-sm transition active:scale-[0.99] hover:-translate-y-0.5 hover:shadow-md md:rounded-[32px] md:p-5">
+                  <div className="flex items-center gap-4">
                     <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-orange-100 text-3xl">🏪</div>
                     <div>
-                      <h3 className="text-lg font-bold text-slate-900">Reward Shop</h3>
-                      <p className="mt-1 text-sm text-slate-600">Spend stars on cute items.</p>
+                      <h3 className="text-xl font-black text-slate-900 md:text-lg md:font-bold">Visit Shop</h3>
+                      <p className="mt-1 text-base font-semibold text-slate-600 md:text-sm md:font-normal">Spend stars on cute items.</p>
                     </div>
                   </div>
-                  <div className="mt-5 inline-flex rounded-full bg-orange-100 px-4 py-2 text-sm font-semibold text-orange-800">
+                  <div className="mt-5 hidden rounded-full bg-orange-100 px-4 py-2 text-sm font-semibold text-orange-800 md:inline-flex">
                     Visit Shop
                   </div>
                 </div>
               </Link>
               <Link href={`/child/${childId}/family`} className="group">
-                <div className="rounded-[32px] bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-                  <div className="flex items-center gap-3">
+                <div className="rounded-[28px] bg-white p-4 shadow-sm transition active:scale-[0.99] hover:-translate-y-0.5 hover:shadow-md md:rounded-[32px] md:p-5">
+                  <div className="flex items-center gap-4">
                     <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-violet-100 text-3xl">👾</div>
                     <div>
-                      <h3 className="text-lg font-bold text-slate-900">Family Boss</h3>
-                      <p className="mt-1 text-sm text-slate-600">Team up and grow stronger.</p>
+                      <h3 className="text-xl font-black text-slate-900 md:text-lg md:font-bold">Family Boss</h3>
+                      <p className="mt-1 text-base font-semibold text-slate-600 md:text-sm md:font-normal">Team up and grow stronger.</p>
                     </div>
                   </div>
-                  <div className="mt-5 inline-flex rounded-full bg-purple-100 px-4 py-2 text-sm font-semibold text-purple-800">
+                  <div className="mt-5 hidden rounded-full bg-purple-100 px-4 py-2 text-sm font-semibold text-purple-800 md:inline-flex">
                     Go to Family Boss
                   </div>
                 </div>
@@ -1190,7 +1269,7 @@ export default function ChildHome() {
         </div>
 
         {/* Bottom stat strip — fills lower page with lightweight data */}
-        <motion.div variants={itemVariants}>
+        <motion.div variants={itemVariants} className="hidden md:block">
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 to-teal-50 px-5 py-5">
               <p className="text-xs font-extrabold uppercase tracking-wider text-emerald-600">✅ Goals</p>
@@ -1225,7 +1304,7 @@ export default function ChildHome() {
           </div>
         </motion.div>
 
-        <motion.div variants={itemVariants} className="mx-auto w-full max-w-3xl">
+        <motion.div variants={itemVariants} className={`mx-auto w-full max-w-3xl ${showMoodDebug ? 'block' : 'hidden md:block'}`}>
           <button
             type="button"
             onClick={() => setShowMoodDebug((current) => !current)}
