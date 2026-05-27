@@ -947,7 +947,7 @@ export default function ChildHome() {
             </div>
           </motion.div>
 
-          <div className="order-3 space-y-4 md:space-y-6 lg:order-2">
+          <div className="order-2 space-y-4 md:space-y-6 lg:order-2">
             <motion.div variants={itemVariants} className={`hidden md:block ${cardStyle} p-6`}>
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -1143,7 +1143,7 @@ export default function ChildHome() {
               ) : null}
             </motion.div>
             <motion.div variants={itemVariants} className={`${cardStyle} p-4 md:hidden`}>
-              <details>
+              <details {...(hasPoop ? { open: true } : {})}>
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-[24px] bg-white px-4 py-3 text-left">
                   <div>
                     <p className="text-sm font-extrabold text-slate-500">Care for pet</p>
@@ -1184,7 +1184,11 @@ export default function ChildHome() {
                     type="button"
                     disabled={careWriteInFlight !== null}
                     onClick={() => void performCareAction('clean')}
-                    className="flex items-center gap-4 rounded-[24px] border border-cyan-100 bg-gradient-to-br from-cyan-50 to-sky-50 p-4 text-left shadow-sm active:scale-[0.99]"
+                    className={`flex items-center gap-4 rounded-[24px] border p-4 text-left shadow-sm active:scale-[0.99] ${
+                      hasPoop
+                        ? 'border-amber-200 bg-gradient-to-br from-amber-50 to-sky-50 ring-2 ring-amber-100'
+                        : 'border-cyan-100 bg-gradient-to-br from-cyan-50 to-sky-50'
+                    }`}
                   >
                     <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white text-3xl shadow-sm">🧼</span>
                     <span>
@@ -1207,7 +1211,7 @@ export default function ChildHome() {
             </motion.div>
           </div>
 
-          <div className="order-2 space-y-4 md:space-y-6 lg:order-3">
+          <div className="order-3 space-y-4 md:space-y-6 lg:order-3">
             <motion.div variants={itemVariants} className={`${cardStyle} p-4 md:p-6`}>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                 <div>
