@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Fredoka, Nunito } from "next/font/google";
+import { AuthGate } from "@/components/AuthGate";
 import "./globals.css";
 
 const fredoka = Fredoka({
@@ -33,7 +34,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${fredoka.variable} ${nunito.variable} h-full`}>
       <body className="h-full bg-gradient-to-br from-amber-50 via-pink-50 to-blue-50 font-sans">
-        {children}
+        <AuthGate>{children}</AuthGate>
       </body>
     </html>
   );
