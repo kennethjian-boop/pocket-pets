@@ -19,9 +19,16 @@ function CozyLoading() {
   );
 }
 
-function LogoutButton() {
+export function LogoutButton({
+  className = '',
+  inline = false,
+}: {
+  className?: string;
+  inline?: boolean;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const positionClass = inline ? '' : 'fixed right-4 top-4 z-[80]';
 
   const handleLogout = async () => {
     if (!hasSupabaseBrowserEnv()) return;
@@ -37,7 +44,7 @@ function LogoutButton() {
       type="button"
       onClick={() => void handleLogout()}
       disabled={busy}
-      className="fixed right-4 top-4 z-[80] rounded-full border border-white/80 bg-white/90 px-4 py-2 text-xs font-extrabold text-slate-600 shadow-sm backdrop-blur transition hover:bg-white disabled:cursor-wait disabled:text-slate-400"
+      className={`${positionClass} rounded-full border border-white/80 bg-white/90 px-4 py-2 text-xs font-extrabold text-slate-600 shadow-sm backdrop-blur transition hover:bg-white disabled:cursor-wait disabled:text-slate-400 ${className}`}
     >
       {busy ? 'Logging out...' : 'Logout'}
     </button>
@@ -48,6 +55,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const isLoginPage = pathname === '/login';
+  const isChildPage = pathname?.startsWith('/child');
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -113,7 +121,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   return (
     <>
-      <LogoutButton />
+      <LogoutButton className={isChildPage ? 'hidden md:inline-flex' : ''} />
       {children}
     </>
   );

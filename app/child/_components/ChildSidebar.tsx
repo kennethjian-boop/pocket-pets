@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import type React from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
+import { LogoutButton } from '@/components/AuthGate';
 import { getChild } from '@/lib/mock-data';
 import {
   mergeWithDefaultChildState,
@@ -96,17 +97,20 @@ export function ChildSidebar({ childId }: { childId: string }) {
         </div>
       </aside>
 
-      <header className="sticky top-0 z-30 border-b border-white/70 bg-white/90 px-4 py-3 shadow-sm backdrop-blur-xl md:hidden">
-        <div className="mb-3 flex items-center justify-between gap-3">
+      <header className="sticky top-0 z-30 border-b border-white/70 bg-white/90 px-3 py-3 shadow-sm backdrop-blur-xl md:hidden">
+        <div className="flex items-center justify-between gap-3 px-1">
           <BrandBlock />
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2">
           <Link
             href="/"
-            className="rounded-full bg-violet-50 px-3 py-2 text-xs font-extrabold text-violet-700"
+            className="flex min-h-10 items-center justify-center rounded-full bg-violet-50 px-3 py-2 text-center text-xs font-extrabold text-violet-700 shadow-sm active:scale-95"
           >
             Switch User
           </Link>
+          <LogoutButton inline className="flex min-h-10 w-full items-center justify-center px-3 py-2 text-center" />
         </div>
-        <nav className="grid grid-cols-3 gap-2">
+        <nav className="mt-3 grid grid-cols-3 gap-2">
           <ChildNavItems childId={childId} />
         </nav>
       </header>
