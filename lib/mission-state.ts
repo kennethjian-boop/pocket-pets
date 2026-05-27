@@ -18,6 +18,7 @@ import {
 } from '@/lib/supabase-child-state';
 import {
   fetchDailyGoalsForChild,
+  fetchDailyGoalsForChildResult,
   upsertDailyGoalsForChild,
   type SupabaseDailyGoalState,
 } from '@/lib/supabase-goals';
@@ -896,13 +897,15 @@ export function ensureDailyGoalsForChild(childId: string) {
     }
   }
 
-  const nextRecord = createRandomDailyGoalsRecord(current?.goals ?? [], today);
-  const nextDailyGoals = {
-    ...dailyGoals,
-    [childId]: nextRecord,
-  };
-  writeDailyGoalsByChild(nextDailyGoals);
-  return nextRecord;
+  const goals = getFallbackGoalIds();
+  return {
+    date: today,
+    source: 'random',
+    goals,
+    goalItems: goalIdsToDailyGoalInstances(goals),
+    completed: Object.fromEntries(goals.map((goalId) => [goalId, false])),
+    previousGoals: current?.goals ?? [],
+  } satisfies DailyGoalsRecord;
 }
 
 export function getDailyGoalsForChild(childId: string) {
@@ -918,12 +921,10 @@ export async function resolveAuthoritativeDailyGoalsForChild(
   childId: string
 ): Promise<AuthoritativeDailyGoalsResult> {
   const today = getTodayKey();
-  const remote = await fetchDailyGoalsForChild(childId, today);
+  const fetchResult = await fetchDailyGoalsForChildResult(childId, today);
+  const remote = fetchResult.state;
 
   if (remote?.date === today && remote.goalIds.length === 3) {
-    const needsGoalEnrichment =
-      remote.goals.length !== 3 ||
-      remote.goals.some((goal) => goal.title === goal.id && Boolean(getGoalById(goal.id)));
     const remoteGoals = remote.goals.length === 3
       ? enrichDailyGoalInstances(remote.goals)
       : goalIdsToDailyGoalInstances(remote.goalIds);
@@ -936,9 +937,6 @@ export async function resolveAuthoritativeDailyGoalsForChild(
       completed,
       previousGoals: remote.previousGoalIds,
     };
-    if (needsGoalEnrichment) {
-      void upsertDailyGoalsForChild(childId, record, remote.setupMode);
-    }
     writeDailyGoalsByChild({
       ...readDailyGoalsByChild(),
       [childId]: record,
@@ -950,6 +948,39 @@ export async function resolveAuthoritativeDailyGoalsForChild(
       source: 'supabase',
       generationHappened: false,
       localStorageFallbackUsed: false,
+    };
+  }
+
+  if (fetchResult.errorMessage) {
+    const cached = readDailyGoalsByChild()[childId];
+    if (cached?.date === today && getUniqueGoalIds(cached.goals).length === 3) {
+      const completed = cached.completed ?? {};
+      const goalItems = cached.goalItems ?? goalIdsToDailyGoalInstances(cached.goals, completed);
+      const record = { ...cached, goalItems, completed };
+      return {
+        record,
+        goals: dailyGoalInstancesToMissions(goalItems),
+        remote: null,
+        source: 'local-fallback',
+        generationHappened: false,
+        localStorageFallbackUsed: true,
+      };
+    }
+
+    return {
+      record: {
+        date: today,
+        source: 'random',
+        goals: dailyMissionTemplates.map((goal) => goal.id),
+        goalItems: goalIdsToDailyGoalInstances(dailyMissionTemplates.map((goal) => goal.id)),
+        completed: {},
+        previousGoals: [],
+      },
+      goals: dailyMissionTemplates,
+      remote: null,
+      source: 'local-fallback',
+      generationHappened: false,
+      localStorageFallbackUsed: true,
     };
   }
 

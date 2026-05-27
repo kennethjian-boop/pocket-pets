@@ -25,6 +25,11 @@ export type SupabaseDailyGoalState = {
   updatedAt: string;
 };
 
+export type FetchDailyGoalsResult = {
+  state: SupabaseDailyGoalState | null;
+  errorMessage: string | null;
+};
+
 const VALID_SETUP_MODES = new Set<GoalSetupMode>(['auto', 'manual', 'random']);
 const SELECT_WITH_ID = 'id, child_id, date, goals, goal_ids, setup_mode, previous_goal_ids, updated_at';
 const SELECT = 'child_id, date, goal_ids, setup_mode, previous_goal_ids, updated_at';
@@ -71,13 +76,13 @@ function toSupabaseDailyGoalState(row: DailyGoalsRow): SupabaseDailyGoalState {
   };
 }
 
-export async function fetchDailyGoalsForChild(
+export async function fetchDailyGoalsForChildResult(
   childId: string,
   date: string
-): Promise<SupabaseDailyGoalState | null> {
+): Promise<FetchDailyGoalsResult> {
   if (!hasSupabaseBrowserEnv()) {
     console.log('[Goals] Supabase env not available - using localStorage for', childId);
-    return null;
+    return { state: null, errorMessage: 'Supabase browser env not available.' };
   }
 
   const supabase = getSupabaseBrowserClient();
@@ -107,7 +112,7 @@ export async function fetchDailyGoalsForChild(
 
   if (error) {
     console.warn('[Goals] Fetch error for', childId, '-', error.message);
-    return null;
+    return { state: null, errorMessage: error.message };
   }
 
   const result = data?.[0] ? toSupabaseDailyGoalState(data[0]) : null;
@@ -127,7 +132,15 @@ export async function fetchDailyGoalsForChild(
   } else {
     console.log('[Goals] No row in Supabase for', childId, date);
   }
-  return result;
+  return { state: result, errorMessage: null };
+}
+
+export async function fetchDailyGoalsForChild(
+  childId: string,
+  date: string
+): Promise<SupabaseDailyGoalState | null> {
+  const result = await fetchDailyGoalsForChildResult(childId, date);
+  return result.state;
 }
 
 export async function upsertDailyGoalsForChild(

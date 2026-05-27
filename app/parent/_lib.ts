@@ -11,10 +11,8 @@ import {
   hydrateChildDashboardStateFromSupabase,
   mergeWithDefaultChildState,
   readChildDashboardState,
-  readDailyGoalsByChild,
   readGoalSetupState,
   resolveAuthoritativeDailyGoalsForChild,
-  writeDailyGoalsByChild,
   writeGoalSetupState,
 } from '@/lib/mission-state';
 import { fetchBossState } from '@/lib/supabase-boss';
@@ -85,16 +83,6 @@ async function hydrateGoalsFromSupabase(): Promise<Record<string, Record<string,
         remote.date === today &&
         remote.goalIds.length === 3
       ) {
-        const current = readDailyGoalsByChild();
-        writeDailyGoalsByChild({
-          ...current,
-          [child.id]: {
-            date: remote.date,
-            source: remote.setupMode,
-            goals: remote.goalIds,
-            previousGoals: remote.previousGoalIds,
-          },
-        });
         const setupState = readGoalSetupState();
         writeGoalSetupState({
           ...setupState,
