@@ -56,6 +56,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const router = useRouter();
   const isLoginPage = pathname === '/login';
   const isChildPage = pathname?.startsWith('/child');
+  const usesPageHeaderLogout = pathname === '/' || pathname?.startsWith('/parent');
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -121,7 +122,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   return (
     <>
-      <LogoutButton className={isChildPage ? 'hidden md:inline-flex' : ''} />
+      <LogoutButton className={isChildPage ? 'hidden md:inline-flex' : usesPageHeaderLogout ? 'hidden' : ''} />
       {children}
     </>
   );

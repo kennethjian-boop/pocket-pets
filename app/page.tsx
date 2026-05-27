@@ -5,6 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence, type Variants } from 'framer-motion';
+import { LogoutButton } from '@/components/AuthGate';
 import { readParentPin, writeParentPin } from '@/lib/parent-pin';
 import { fetchParentSettings } from '@/lib/supabase-parent-settings';
 
@@ -119,7 +120,7 @@ export default function LandingPage() {
       <div className="relative z-10 flex flex-col items-center">
 
         {/* ===== NAV ===== */}
-        <nav className="flex w-full max-w-4xl items-center justify-between px-8 py-6 sm:px-10">
+        <nav className="flex w-full max-w-4xl flex-col gap-3 px-4 py-5 sm:px-10 md:flex-row md:items-center md:justify-between md:py-6">
           <div className="flex items-center gap-3">
             <span className="text-4xl">🐾</span>
             <span className="text-2xl font-extrabold tracking-tight text-slate-800 sm:text-3xl">
@@ -127,16 +128,19 @@ export default function LandingPage() {
             </span>
           </div>
 
+          <div className="grid w-full grid-cols-2 gap-2 md:w-auto md:flex md:items-center md:gap-3">
           <motion.button
             whileHover={{ scale: 1.03 }}
             whileTap={{ scale: 0.97 }}
             onClick={openPin}
-            className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/90 px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm backdrop-blur-sm transition hover:bg-white hover:shadow-md sm:text-base"
+            className="flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm backdrop-blur-sm transition hover:bg-white hover:shadow-md sm:text-base md:px-5"
           >
             <span>👨‍👩‍👧</span>
             <span className="hidden sm:inline">Parent Dashboard</span>
             <span className="sm:hidden">Parents</span>
           </motion.button>
+          <LogoutButton inline className="flex min-h-11 items-center justify-center px-4 py-3 text-sm sm:text-base" />
+          </div>
         </nav>
 
         {/* ===== HERO ===== */}

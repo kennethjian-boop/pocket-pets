@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { LogoutButton } from '@/components/AuthGate';
 
 const navItems = [
   { icon: '📊', label: 'Overview', href: '/parent/dashboard' },
@@ -89,6 +90,7 @@ export default function ParentSidebar() {
           <span>🔒</span>
           <span>Change Parent PIN</span>
         </Link>
+        <LogoutButton inline className="mt-3 flex w-full items-center justify-center px-3 py-2 text-sm" />
       </div>
     </aside>
   );
