@@ -19,7 +19,6 @@ import {
   careActionConfig,
   dailyMissionTemplates,
   getPoopPenaltyInfo,
-  getDailyGoalsForChild,
   getDailyGoalsStorageKey,
   getDefaultDailyActionCounts,
   getDefaultLastActionTimestamps,
@@ -29,15 +28,13 @@ import {
   mergeWithDefaultChildState,
   readChildDashboardState,
   readChildSupabaseSyncMeta,
-  readDailyGoalsByChild,
   reconcilePoopEvents,
+  resolveAuthoritativeDailyGoalsForChild,
   saveChildDashboardState,
   setActiveSkin,
   syncChildMood,
   writeChildDashboardState,
-  writeDailyGoalsByChild,
 } from '@/lib/mission-state';
-import { fetchDailyGoalsForChild } from '@/lib/supabase-goals';
 import { fetchCareStateForChild, upsertCareStateForChild } from '@/lib/supabase-care-state';
 import { hasSupabaseBrowserEnv } from '@/lib/supabase-browser';
 
@@ -49,9 +46,13 @@ type SyncDebugInfo = {
   syncSource: string;
   syncError: string | null;
   goalsDate: string | null;
+  supabaseGoalRowId: string | null;
+  supabaseGoalRowDate: string | null;
   goalsIds: string;
-  goalsSource: 'supabase' | 'local-fallback' | 'default-generated';
+  goalsSource: 'supabase' | 'supabase-generated' | 'local-fallback';
   goalsTitles: string;
+  generationHappened: boolean;
+  localStorageFallbackUsed: boolean;
   completedGoalIds: string;
   moodSource: string;
   moodPercent: number;
@@ -223,7 +224,7 @@ export default function ChildHome() {
       parsed: ReturnType<typeof mergeWithDefaultChildState>,
       goals?: DailyMission[]
     ) => {
-      setMissionTemplates(goals ?? dailyMissionTemplates);
+      if (goals) setMissionTemplates(goals);
       setStars(parsed.stars);
       setHearts(parsed.hearts);
       setScreenEnergy(parsed.screenEnergy);
@@ -243,21 +244,12 @@ export default function ChildHome() {
     };
 
     const syncFromStorage = () => {
-      const today = getTodayKey();
-      const stored = readDailyGoalsByChild()[childId];
-      // Only call getDailyGoalsForChild when today's goals already exist in localStorage.
-      // ensureDailyGoalsForChild (called inside it) would otherwise generate random goals
-      // and fire a Supabase write that corrupts the row before the Supabase read returns.
-      const goals =
-        stored?.date === today && stored.goals.length > 0
-          ? getDailyGoalsForChild(childId)
-          : undefined;
-      applyDashboardState(mergeWithDefaultChildState(child, readChildDashboardState(childId)), goals);
+      applyDashboardState(mergeWithDefaultChildState(child, readChildDashboardState(childId)));
     };
 
     syncFromStorage();
 
-    let capturedGoals: { date: string; goalIds: string[] } | null = null;
+    let capturedGoals: Awaited<ReturnType<typeof resolveAuthoritativeDailyGoalsForChild>> | null = null;
     let capturedCareState: {
       date: string;
       actionCounts: DailyActionCounts;
@@ -268,23 +260,18 @@ export default function ChildHome() {
 
     void Promise.all([
       hydrateChildDashboardStateFromSupabase(childId, child),
-      fetchDailyGoalsForChild(childId).then((remote) => {
-        const today = getTodayKey();
-        capturedGoals = remote ? { date: remote.date, goalIds: remote.goalIds } : null;
-        if (remote && remote.date === today && remote.goalIds.length === 3) {
-          console.log('[Goals] Hydrating child page from Supabase:', remote.goalIds, 'date:', remote.date, 'mode:', remote.setupMode);
-          writeDailyGoalsByChild({
-            ...readDailyGoalsByChild(),
-            [childId]: {
-              date: remote.date,
-              source: remote.setupMode !== 'auto' ? remote.setupMode : 'random',
-              goals: remote.goalIds,
-              previousGoals: remote.previousGoalIds,
-            },
-          });
-        } else {
-          console.log('[Goals] Child page: no valid Supabase goals — today:', today, 'remote date:', remote?.date ?? 'null');
-        }
+      resolveAuthoritativeDailyGoalsForChild(childId).then((resolved) => {
+        capturedGoals = resolved;
+        console.log(
+          '[Goals] Child page authoritative goals:',
+          resolved.record.goals,
+          'date:',
+          resolved.record.date,
+          'source:',
+          resolved.source,
+          'generated:',
+          resolved.generationHappened
+        );
       }),
       fetchCareStateForChild(childId).then((careState) => {
         capturedCareState = careState;
@@ -316,8 +303,7 @@ export default function ChildHome() {
       if (capturedCareState) {
         writeChildDashboardState(childId, mergedState);
       }
-      // Safe to call getDailyGoalsForChild here: Supabase goals are now in localStorage.
-      const resolvedGoals = getDailyGoalsForChild(childId);
+      const resolvedGoals = capturedGoals?.goals ?? dailyMissionTemplates;
       applyDashboardState(mergedState, resolvedGoals);
       // setDashboardLoaded MUST be set here (post-hydration) not in syncFromStorage.
       // Setting it early causes saveChildDashboardState to fire with stale localStorage
@@ -325,13 +311,7 @@ export default function ChildHome() {
       setDashboardLoaded(true);
       const syncMeta = readChildSupabaseSyncMeta(childId);
       const todayKey = getTodayKey();
-      const storedGoals = readDailyGoalsByChild()[childId];
       const poopPenalty = getPoopPenaltyInfo(mergedState.poopEvents);
-      const goalsSource: SyncDebugInfo['goalsSource'] = capturedGoals
-        ? 'supabase'
-        : storedGoals?.date === todayKey && storedGoals.goals.length > 0
-          ? 'local-fallback'
-          : 'default-generated';
       setSyncDebug({
         supabaseEnv: hasSupabaseBrowserEnv(),
         childId,
@@ -339,10 +319,14 @@ export default function ChildHome() {
         hydratedStars: hydratedState.stars,
         syncSource: syncMeta.lastSyncSource,
         syncError: syncMeta.lastSyncError,
-        goalsDate: capturedGoals?.date ?? null,
-        goalsIds: capturedGoals?.goalIds.join(', ') ?? 'none',
-        goalsSource,
+        goalsDate: capturedGoals?.record.date ?? null,
+        supabaseGoalRowId: capturedGoals?.remote?.id ?? null,
+        supabaseGoalRowDate: capturedGoals?.remote?.date ?? null,
+        goalsIds: capturedGoals?.record.goals.join(', ') ?? 'none',
+        goalsSource: capturedGoals?.source ?? 'local-fallback',
         goalsTitles: resolvedGoals.map((g) => g.title).join(' / '),
+        generationHappened: capturedGoals?.generationHappened ?? false,
+        localStorageFallbackUsed: capturedGoals?.localStorageFallbackUsed ?? false,
         completedGoalIds:
           Object.keys(hydratedState.completedMissions ?? {})
             .filter((id) => (hydratedState.completedMissions ?? {})[id])
@@ -1389,9 +1373,13 @@ export default function ChildHome() {
                     <p>hydrated stars: <span className="font-bold">{syncDebug.hydratedStars}</span></p>
                     <p>date key: <span className="font-mono">{syncDebug.dateKey}</span></p>
                     <p>goals date: <span className="font-mono">{syncDebug.goalsDate ?? 'none in Supabase'}</span></p>
+                    <p>supabase row id: <span className="font-mono">{syncDebug.supabaseGoalRowId ?? 'none'}</span></p>
+                    <p>supabase row date: <span className="font-mono">{syncDebug.supabaseGoalRowDate ?? 'none'}</span></p>
                     <p>goals ids: <span className="font-mono">{syncDebug.goalsIds}</span></p>
                     <p>goals source: <span className="font-bold">{syncDebug.goalsSource}</span></p>
                     <p>goals titles: <span className="font-mono">{syncDebug.goalsTitles}</span></p>
+                    <p>generation happened: <span className="font-bold">{syncDebug.generationHappened ? 'yes' : 'no'}</span></p>
+                    <p>localStorage fallback used: <span className="font-bold">{syncDebug.localStorageFallbackUsed ? 'yes' : 'no'}</span></p>
                     <p>completed ids: <span className="font-mono">{syncDebug.completedGoalIds}</span></p>
                     <p>mood source: <span className="font-bold">{syncDebug.moodSource}</span></p>
                     <p>mood_percent: <span className="font-bold">{syncDebug.moodPercent}</span></p>

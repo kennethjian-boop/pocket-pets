@@ -13,10 +13,10 @@ import {
   readChildDashboardState,
   readDailyGoalsByChild,
   readGoalSetupState,
+  resolveAuthoritativeDailyGoalsForChild,
   writeDailyGoalsByChild,
   writeGoalSetupState,
 } from '@/lib/mission-state';
-import { fetchDailyGoalsForChild } from '@/lib/supabase-goals';
 import { fetchBossState } from '@/lib/supabase-boss';
 import { writeBossBattleStateLocal } from '@/lib/boss-battle';
 import { RewardTemplate, defaultRewardTemplates, normalizeRewardTemplate } from '@/lib/reward-templates';
@@ -68,7 +68,8 @@ async function hydrateGoalsFromSupabase(): Promise<void> {
   const today = getTodayKey();
   await Promise.all(
     mockChildren.map(async (child) => {
-      const remote = await fetchDailyGoalsForChild(child.id);
+      const resolved = await resolveAuthoritativeDailyGoalsForChild(child.id);
+      const remote = resolved.remote;
       if (
         remote &&
         remote.setupMode !== 'auto' &&

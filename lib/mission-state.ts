@@ -16,7 +16,11 @@ import {
   updateChildMood,
   upsertChildStateFromDashboard,
 } from '@/lib/supabase-child-state';
-import { upsertDailyGoalsForChild } from '@/lib/supabase-goals';
+import {
+  fetchDailyGoalsForChild,
+  upsertDailyGoalsForChild,
+  type SupabaseDailyGoalState,
+} from '@/lib/supabase-goals';
 
 export type CompletedMissions = Record<string, boolean>;
 export type CareActionType = 'feed' | 'pat' | 'clean';
@@ -71,6 +75,20 @@ export interface DailyGoalsRecord {
 export type DailyGoalsByChild = Record<string, DailyGoalsRecord>;
 
 export type GoalSetupMode = DailyGoalSource | 'auto';
+
+export type AuthoritativeDailyGoalsSource =
+  | 'supabase'
+  | 'supabase-generated'
+  | 'local-fallback';
+
+export interface AuthoritativeDailyGoalsResult {
+  record: DailyGoalsRecord;
+  goals: DailyMission[];
+  remote: SupabaseDailyGoalState | null;
+  source: AuthoritativeDailyGoalsSource;
+  generationHappened: boolean;
+  localStorageFallbackUsed: boolean;
+}
 
 export interface GoalSetupState {
   modeByChild: Record<string, GoalSetupMode>;
@@ -396,8 +414,6 @@ export const careActionConfig: Record<
   },
 };
 
-export const getTodayKey = () => new Date().toLocaleDateString('en-CA');
-
 function getSingaporeDateParts(now = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Singapore',
@@ -417,6 +433,8 @@ export const getSingaporeDateKey = (now = new Date()) => {
   const { year, month, day } = getSingaporeDateParts(now);
   return `${year}-${month}-${day}`;
 };
+
+export const getTodayKey = (now = new Date()) => getSingaporeDateKey(now);
 
 const POOP_SCHEDULE_HOURS = [10, 16] as const;
 const POOP_GRACE_MS = 10 * 60 * 60 * 1000;
@@ -743,6 +761,34 @@ function getRandomGoalIds(previousGoals: string[] = []) {
   return selected;
 }
 
+export function createRandomDailyGoalsRecord(
+  previousGoals: string[] = [],
+  date = getTodayKey()
+): DailyGoalsRecord {
+  return {
+    date,
+    source: 'random',
+    goals: getRandomGoalIds(previousGoals),
+    previousGoals,
+  };
+}
+
+export function goalIdsToDailyMissions(goalIds: string[]) {
+  const goals = goalIds
+    .map((goalId) => getGoalById(goalId))
+    .filter((goal): goal is GoalTemplate => Boolean(goal))
+    .slice(0, 3);
+
+  if (goals.length === 3) {
+    return goals.map(goalToMission);
+  }
+
+  return getFallbackGoalIds()
+    .map((goalId) => getGoalById(goalId))
+    .filter((goal): goal is GoalTemplate => Boolean(goal))
+    .map(goalToMission);
+}
+
 export function readDailyGoalsByChild(): DailyGoalsByChild {
   if (typeof window === 'undefined') return {};
   ensureFreshStartLocalReset();
@@ -808,13 +854,7 @@ export function ensureDailyGoalsForChild(childId: string) {
     }
   }
 
-  const previousGoals = current?.goals ?? [];
-  const nextRecord: DailyGoalsRecord = {
-    date: today,
-    source: 'random',
-    goals: getRandomGoalIds(previousGoals),
-    previousGoals,
-  };
+  const nextRecord = createRandomDailyGoalsRecord(current?.goals ?? [], today);
   const nextDailyGoals = {
     ...dailyGoals,
     [childId]: nextRecord,
@@ -825,19 +865,62 @@ export function ensureDailyGoalsForChild(childId: string) {
 
 export function getDailyGoalsForChild(childId: string) {
   const record = ensureDailyGoalsForChild(childId);
-  const goals = record.goals
-    .map((goalId) => getGoalById(goalId))
-    .filter((goal): goal is GoalTemplate => Boolean(goal))
-    .slice(0, 3);
+  return goalIdsToDailyMissions(record.goals);
+}
 
-  if (goals.length === 3) {
-    return goals.map(goalToMission);
+export async function resolveAuthoritativeDailyGoalsForChild(
+  childId: string
+): Promise<AuthoritativeDailyGoalsResult> {
+  const today = getTodayKey();
+  const remote = await fetchDailyGoalsForChild(childId, today);
+
+  if (remote?.date === today && remote.goalIds.length === 3) {
+    const record: DailyGoalsRecord = {
+      date: remote.date,
+      source: remote.setupMode !== 'auto' ? remote.setupMode : 'random',
+      goals: remote.goalIds,
+      previousGoals: remote.previousGoalIds,
+    };
+    writeDailyGoalsByChild({
+      ...readDailyGoalsByChild(),
+      [childId]: record,
+    });
+    return {
+      record,
+      goals: goalIdsToDailyMissions(record.goals),
+      remote,
+      source: 'supabase',
+      generationHappened: false,
+      localStorageFallbackUsed: false,
+    };
   }
 
-  return getFallbackGoalIds()
-    .map((goalId) => getGoalById(goalId))
-    .filter((goal): goal is GoalTemplate => Boolean(goal))
-    .map(goalToMission);
+  const current = readDailyGoalsByChild()[childId];
+  const generatedRecord = createRandomDailyGoalsRecord(current?.goals ?? [], today);
+  const persisted = await upsertDailyGoalsForChild(childId, generatedRecord, 'auto');
+  const record: DailyGoalsRecord =
+    persisted?.date === today && persisted.goalIds.length === 3
+      ? {
+          date: persisted.date,
+          source: persisted.setupMode !== 'auto' ? persisted.setupMode : 'random',
+          goals: persisted.goalIds,
+          previousGoals: persisted.previousGoalIds,
+        }
+      : generatedRecord;
+
+  writeDailyGoalsByChild({
+    ...readDailyGoalsByChild(),
+    [childId]: record,
+  });
+
+  return {
+    record,
+    goals: goalIdsToDailyMissions(record.goals),
+    remote: persisted,
+    source: persisted ? 'supabase-generated' : 'local-fallback',
+    generationHappened: true,
+    localStorageFallbackUsed: !persisted,
+  };
 }
 
 export function setDailyGoalsForChild(
