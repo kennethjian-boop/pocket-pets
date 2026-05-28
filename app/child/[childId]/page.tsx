@@ -17,7 +17,6 @@ import {
   clearPoopEvents,
   clearEggMessage,
   careActionConfig,
-  dailyMissionTemplates,
   getPoopPenaltyInfo,
   getDailyGoalsStorageKey,
   getDefaultDailyActionCounts,
@@ -179,7 +178,7 @@ export default function ChildHome() {
   const [comfort, setComfort] = useState(70);
   const [moodUpdatedAt, setMoodUpdatedAt] = useState<string | null>(null);
   const [missionTemplates, setMissionTemplates] = useState<DailyMission[]>(
-    dailyMissionTemplates
+    []
   );
   const [completedMissions, setCompletedMissions] = useState<Record<string, boolean>>({});
   const [dailyActionCounts, setDailyActionCounts] = useState<DailyActionCounts>(
@@ -305,7 +304,7 @@ export default function ChildHome() {
       if (capturedCareState) {
         writeChildDashboardState(childId, mergedState);
       }
-      const resolvedGoals = capturedGoals?.goals ?? dailyMissionTemplates;
+      const resolvedGoals = capturedGoals?.goals ?? [];
       const dailyGoalCompletedMissions = capturedGoals?.record.completed;
       const displayState = dailyGoalCompletedMissions
         ? {

@@ -3,6 +3,11 @@
 import { getSupabaseBrowserClient, hasSupabaseBrowserEnv } from '@/lib/supabase-browser';
 import type { DailyGoalInstance, DailyGoalsRecord, GoalSetupMode } from '@/lib/mission-state';
 
+export type DailyGoalsWriteReason =
+  | 'randomise_click'
+  | 'manual_save'
+  | 'verification_update';
+
 type DailyGoalsRow = {
   id?: string | null;
   child_id: string;
@@ -146,9 +151,19 @@ export async function fetchDailyGoalsForChild(
 export async function upsertDailyGoalsForChild(
   childId: string,
   record: DailyGoalsRecord,
-  setupMode: GoalSetupMode
+  setupMode: GoalSetupMode,
+  reason: DailyGoalsWriteReason
 ): Promise<SupabaseDailyGoalState | null> {
   if (!hasSupabaseBrowserEnv()) return null;
+
+  const goalTitles = (record.goalItems ?? []).map((goal) => goal.title);
+  console.info('[Goals] WRITE', {
+    reason,
+    child_id: childId,
+    date: record.date,
+    goal_titles: goalTitles,
+    automatic: false,
+  });
 
   console.log(
     '[Goals] Upserting to Supabase for',

@@ -4,7 +4,6 @@ import {
   ChildDashboardState,
   DailyMission,
   GoalSetupMode,
-  dailyMissionTemplates,
   getDailyGoalsForChild,
   getGoalSetupMode,
   getTodayKey,
@@ -109,7 +108,7 @@ export function buildGoalsByChild(readStored: boolean): GoalsByChild {
   return Object.fromEntries(
     mockChildren.map((child) => [
       child.id,
-      readStored ? getDailyGoalsForChild(child.id) : dailyMissionTemplates,
+      readStored ? getDailyGoalsForChild(child.id) : [],
     ])
   );
 }

@@ -20,6 +20,7 @@ import {
   fetchDailyGoalsForChild,
   fetchDailyGoalsForChildResult,
   upsertDailyGoalsForChild,
+  type DailyGoalsWriteReason,
   type SupabaseDailyGoalState,
 } from '@/lib/supabase-goals';
 
@@ -96,6 +97,39 @@ export interface AuthoritativeDailyGoalsResult {
   generationHappened: boolean;
   localStorageFallbackUsed: boolean;
 }
+
+const emptyDailyGoalsResult = (childId: string, today = getTodayKey()): AuthoritativeDailyGoalsResult => {
+  const cached = readDailyGoalsByChild()[childId];
+  if (cached?.date === today && getUniqueGoalIds(cached.goals).length === 3) {
+    const completed = cached.completed ?? {};
+    const goalItems = cached.goalItems ?? goalIdsToDailyGoalInstances(cached.goals, completed);
+    const record = { ...cached, goalItems, completed };
+    return {
+      record,
+      goals: dailyGoalInstancesToMissions(goalItems),
+      remote: null,
+      source: 'local-fallback',
+      generationHappened: false,
+      localStorageFallbackUsed: true,
+    };
+  }
+
+  return {
+    record: {
+      date: today,
+      source: 'random',
+      goals: [],
+      goalItems: [],
+      completed: {},
+      previousGoals: [],
+    },
+    goals: [],
+    remote: null,
+    source: 'local-fallback',
+    generationHappened: false,
+    localStorageFallbackUsed: false,
+  };
+};
 
 export interface GoalSetupState {
   modeByChild: Record<string, GoalSetupMode>;
@@ -879,7 +913,7 @@ export function setGoalSetupMode(childId: string, mode: GoalSetupMode) {
   return next;
 }
 
-export function ensureDailyGoalsForChild(childId: string) {
+export function ensureDailyGoalsForChild(childId: string, intentionalGenerate = false) {
   const today = getTodayKey();
   const dailyGoals = readDailyGoalsByChild();
   const current = dailyGoals[childId];
@@ -897,6 +931,10 @@ export function ensureDailyGoalsForChild(childId: string) {
     }
   }
 
+  if (intentionalGenerate) {
+    return createRandomDailyGoalsRecord(current?.goals ?? [], today);
+  }
+
   const goals = getFallbackGoalIds();
   return {
     date: today,
@@ -912,7 +950,7 @@ export function getDailyGoalsForChild(childId: string) {
   const today = getTodayKey();
   const record = readDailyGoalsByChild()[childId];
   if (record?.date !== today || getUniqueGoalIds(record.goals).length !== 3) {
-    return dailyMissionTemplates;
+    return [];
   }
   return goalIdsToDailyMissions(record.goals);
 }
@@ -952,69 +990,10 @@ export async function resolveAuthoritativeDailyGoalsForChild(
   }
 
   if (fetchResult.errorMessage) {
-    const cached = readDailyGoalsByChild()[childId];
-    if (cached?.date === today && getUniqueGoalIds(cached.goals).length === 3) {
-      const completed = cached.completed ?? {};
-      const goalItems = cached.goalItems ?? goalIdsToDailyGoalInstances(cached.goals, completed);
-      const record = { ...cached, goalItems, completed };
-      return {
-        record,
-        goals: dailyGoalInstancesToMissions(goalItems),
-        remote: null,
-        source: 'local-fallback',
-        generationHappened: false,
-        localStorageFallbackUsed: true,
-      };
-    }
-
-    return {
-      record: {
-        date: today,
-        source: 'random',
-        goals: dailyMissionTemplates.map((goal) => goal.id),
-        goalItems: goalIdsToDailyGoalInstances(dailyMissionTemplates.map((goal) => goal.id)),
-        completed: {},
-        previousGoals: [],
-      },
-      goals: dailyMissionTemplates,
-      remote: null,
-      source: 'local-fallback',
-      generationHappened: false,
-      localStorageFallbackUsed: true,
-    };
+    return emptyDailyGoalsResult(childId, today);
   }
 
-  const current = readDailyGoalsByChild()[childId];
-  const generatedRecord = createRandomDailyGoalsRecord(current?.goals ?? [], today);
-  const persisted = await upsertDailyGoalsForChild(childId, generatedRecord, 'auto');
-  const persistedGoals = persisted?.goals.length === 3
-    ? enrichDailyGoalInstances(persisted.goals)
-    : generatedRecord.goalItems ?? goalIdsToDailyGoalInstances(generatedRecord.goals);
-  const record: DailyGoalsRecord =
-    persisted?.date === today && persisted.goalIds.length === 3
-      ? {
-          date: persisted.date,
-          source: persisted.setupMode !== 'auto' ? persisted.setupMode : 'random',
-          goals: persisted.goalIds,
-          goalItems: persistedGoals,
-          completed: getCompletedMissionsFromDailyGoals(persistedGoals),
-          previousGoals: persisted.previousGoalIds,
-        }
-      : generatedRecord;
-
-  writeDailyGoalsByChild({
-    ...readDailyGoalsByChild(),
-    [childId]: record,
-  });
-
-  return {
-    record,
-    goals: dailyGoalInstancesToMissions(record.goalItems ?? goalIdsToDailyGoalInstances(record.goals, record.completed)),
-    remote: persisted,
-    source: persisted ? 'supabase-generated' : 'local-fallback',
-    generationHappened: true,
-    localStorageFallbackUsed: !persisted,
-  };
+  return emptyDailyGoalsResult(childId, today);
 }
 
 export async function updateDailyGoalCompletionForChild(
@@ -1042,7 +1021,12 @@ export async function updateDailyGoalCompletionForChild(
     completed: nextCompleted,
     previousGoals: remote.previousGoalIds,
   };
-  const persisted = await upsertDailyGoalsForChild(childId, nextRecord, remote.setupMode);
+  const persisted = await upsertDailyGoalsForChild(
+    childId,
+    nextRecord,
+    remote.setupMode,
+    'verification_update'
+  );
   const finalGoals = persisted?.goals.length === 3 ? enrichDailyGoalInstances(persisted.goals) : nextGoals;
   const finalRecord = {
     ...nextRecord,
@@ -1075,20 +1059,14 @@ export function setDailyGoalsForChild(
     completed,
     previousGoals: current?.goals ?? [],
   };
-  const nextDailyGoals = {
-    ...currentDailyGoals,
-    [childId]: nextRecord,
-  };
-
-  writeDailyGoalsByChild(nextDailyGoals);
-  void upsertDailyGoalsForChild(childId, nextRecord, source);
   return nextRecord;
 }
 
 export async function setAuthoritativeDailyGoalsForChild(
   childId: string,
   goalIds: string[],
-  source: DailyGoalSource = 'manual'
+  source: DailyGoalSource = 'manual',
+  reason: DailyGoalsWriteReason = source === 'manual' ? 'manual_save' : 'randomise_click'
 ) {
   const today = getTodayKey();
   const currentDailyGoals = readDailyGoalsByChild();
@@ -1104,7 +1082,7 @@ export async function setAuthoritativeDailyGoalsForChild(
     completed,
     previousGoals: current?.goals ?? [],
   };
-  const persisted = await upsertDailyGoalsForChild(childId, nextRecord, source);
+  const persisted = await upsertDailyGoalsForChild(childId, nextRecord, source, reason);
   const finalGoals = persisted?.goals.length === 3
     ? enrichDailyGoalInstances(persisted.goals)
     : nextRecord.goalItems ?? goalIdsToDailyGoalInstances(nextRecord.goals);
@@ -1125,11 +1103,12 @@ export async function setAuthoritativeDailyGoalsForChild(
 
 export function randomizeDailyGoalsForChild(childId: string) {
   const current = readDailyGoalsByChild()[childId];
-  return setDailyGoalsForChild(
-    childId,
-    getRandomGoalIds(current?.goals ?? []),
-    'random'
-  );
+  return {
+    date: getTodayKey(),
+    source: 'random',
+    goals: getRandomGoalIds(current?.goals ?? []),
+    previousGoals: current?.goals ?? [],
+  } satisfies DailyGoalsRecord;
 }
 
 export async function randomizeAuthoritativeDailyGoalsForChild(childId: string) {
@@ -1137,7 +1116,8 @@ export async function randomizeAuthoritativeDailyGoalsForChild(childId: string) 
   return setAuthoritativeDailyGoalsForChild(
     childId,
     getRandomGoalIds(current?.goals ?? []),
-    'random'
+    'random',
+    'randomise_click'
   );
 }
 
