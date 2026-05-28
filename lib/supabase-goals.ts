@@ -49,6 +49,11 @@ function isMissingIdColumnError(message: string) {
   return /column .*id|id.*does not exist/i.test(message);
 }
 
+function isLegacyPrimaryKeyConflict(error: unknown) {
+  const info = getSupabaseErrorInfo(error);
+  return info.code === '23505' && /daily_goals_pkey/i.test(info.message);
+}
+
 function getSupabaseErrorInfo(error: unknown) {
   const supabaseError = error as {
     code?: string;
@@ -266,6 +271,21 @@ export async function upsertDailyGoalsForChild(
       data = insert.data;
       error = insert.error;
     }
+  }
+
+  if (error && isLegacyPrimaryKeyConflict(error)) {
+    console.warn(
+      '[Goals] Legacy daily_goals primary key conflict; updating existing child row.',
+      getSupabaseErrorInfo(error)
+    );
+    const update = await supabase
+      .from('daily_goals')
+      .update(payload)
+      .eq('child_id', childId)
+      .select(CANONICAL_SELECT_NO_ID)
+      .single<DailyGoalsRow>();
+    data = update.data;
+    error = update.error;
   }
 
   if (error) {
