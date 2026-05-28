@@ -39,9 +39,14 @@ const VALID_SETUP_MODES = new Set<GoalSetupMode>(['auto', 'manual', 'random']);
 const SELECT_WITH_ID = 'id, child_id, date, goals, goal_ids, setup_mode, previous_goal_ids, updated_at';
 const SELECT = 'child_id, date, goal_ids, setup_mode, previous_goal_ids, updated_at';
 const CANONICAL_SELECT = 'id, child_id, date, goals, updated_at';
+const CANONICAL_SELECT_NO_ID = 'child_id, date, goals, updated_at';
 
 function isMissingConflictConstraintError(message: string) {
   return /no unique|no exclusion|on conflict/i.test(message);
+}
+
+function isMissingIdColumnError(message: string) {
+  return /column .*id|id.*does not exist/i.test(message);
 }
 
 function getSupabaseErrorInfo(error: unknown) {
@@ -218,11 +223,22 @@ export async function upsertDailyGoalsForChild(
     .select(CANONICAL_SELECT)
     .single<DailyGoalsRow>();
 
+  if (error && isMissingIdColumnError(error.message)) {
+    console.warn('[Goals] daily_goals.id is missing; retrying save without id in select.', getSupabaseErrorInfo(error));
+    const retry = await supabase
+      .from('daily_goals')
+      .upsert(payload, { onConflict: 'child_id,date' })
+      .select(CANONICAL_SELECT_NO_ID)
+      .single<DailyGoalsRow>();
+    data = retry.data;
+    error = retry.error;
+  }
+
   if (error && isMissingConflictConstraintError(error.message)) {
     console.warn('[Goals] Upsert conflict target unavailable; falling back to select/update/insert.', getSupabaseErrorInfo(error));
     const existing = await supabase
       .from('daily_goals')
-      .select(CANONICAL_SELECT)
+      .select(CANONICAL_SELECT_NO_ID)
       .eq('child_id', childId)
       .eq('date', record.date)
       .order('updated_at', { ascending: false })
@@ -231,12 +247,13 @@ export async function upsertDailyGoalsForChild(
 
     if (existing.error) {
       error = existing.error;
-    } else if (existing.data?.[0]?.id) {
+    } else if (existing.data?.[0]) {
       const update = await supabase
         .from('daily_goals')
         .update(payload)
-        .eq('id', existing.data[0].id)
-        .select(CANONICAL_SELECT)
+        .eq('child_id', childId)
+        .eq('date', record.date)
+        .select(CANONICAL_SELECT_NO_ID)
         .single<DailyGoalsRow>();
       data = update.data;
       error = update.error;
@@ -244,7 +261,7 @@ export async function upsertDailyGoalsForChild(
       const insert = await supabase
         .from('daily_goals')
         .insert(payload)
-        .select(CANONICAL_SELECT)
+        .select(CANONICAL_SELECT_NO_ID)
         .single<DailyGoalsRow>();
       data = insert.data;
       error = insert.error;
