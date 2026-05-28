@@ -1159,6 +1159,9 @@ export async function setAuthoritativeDailyGoalsForChild(
     previousGoals: current?.goals ?? [],
   };
   const persisted = await upsertDailyGoalsForChild(childId, nextRecord, source, reason);
+  if (!persisted) {
+    throw new Error(`Daily goals save failed for ${childId} on ${today}.`);
+  }
   const finalGoals = persisted?.goals.length === 3
     ? enrichDailyGoalInstances(persisted.goals)
     : nextRecord.goalItems ?? goalIdsToDailyGoalInstances(nextRecord.goals);
@@ -1189,9 +1192,16 @@ export function randomizeDailyGoalsForChild(childId: string) {
 
 export async function randomizeAuthoritativeDailyGoalsForChild(childId: string) {
   const current = readDailyGoalsByChild()[childId];
+  const goalIds = getRandomGoalIds(current?.goals ?? []);
+  console.info('[Goals] Randomise click generated goals', {
+    child_id: childId,
+    date: getTodayKey(),
+    generated_goal_ids: goalIds,
+    generated_goal_titles: goalIdsToDailyMissions(goalIds).map((goal) => goal.title),
+  });
   return setAuthoritativeDailyGoalsForChild(
     childId,
-    getRandomGoalIds(current?.goals ?? []),
+    goalIds,
     'random',
     'randomise_click'
   );

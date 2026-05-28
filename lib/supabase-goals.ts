@@ -39,6 +39,10 @@ const VALID_SETUP_MODES = new Set<GoalSetupMode>(['auto', 'manual', 'random']);
 const SELECT_WITH_ID = 'id, child_id, date, goals, goal_ids, setup_mode, previous_goal_ids, updated_at';
 const SELECT = 'child_id, date, goal_ids, setup_mode, previous_goal_ids, updated_at';
 
+function isMissingConflictConstraintError(message: string) {
+  return /no unique|no exclusion|on conflict/i.test(message);
+}
+
 function normalizeGoalItem(item: unknown): DailyGoalInstance | null {
   if (!item || typeof item !== 'object') return null;
   const goal = item as Partial<DailyGoalInstance>;
@@ -178,48 +182,75 @@ export async function upsertDailyGoalsForChild(
 
   const supabase = getSupabaseBrowserClient();
   const goals = record.goalItems ?? [];
+  const payload = {
+    child_id: childId,
+    date: record.date,
+    goals,
+    goal_ids: record.goals,
+    setup_mode: setupMode,
+    previous_goal_ids: record.previousGoals ?? [],
+    updated_at: new Date().toISOString(),
+  };
+  console.info('[Goals] WRITE payload', payload);
+
   let { data, error } = await supabase
     .from('daily_goals')
-    .upsert(
-      {
-        child_id: childId,
-        date: record.date,
-        goals,
-        goal_ids: record.goals,
-        setup_mode: setupMode,
-        previous_goal_ids: record.previousGoals ?? [],
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'child_id,date' }
-    )
+    .upsert(payload, { onConflict: 'child_id,date' })
     .select(SELECT_WITH_ID)
     .single<DailyGoalsRow>();
 
-  if (error && /id|goals/i.test(error.message)) {
-    const retry = await supabase
+  if (error && isMissingConflictConstraintError(error.message)) {
+    console.warn('[Goals] Upsert conflict target unavailable; falling back to select/update/insert.', error.message);
+    const existing = await supabase
       .from('daily_goals')
-      .upsert(
-        {
-          child_id: childId,
-          date: record.date,
-          goal_ids: record.goals,
-          setup_mode: setupMode,
-          previous_goal_ids: record.previousGoals ?? [],
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'child_id,date' }
-      )
-      .select(SELECT)
-      .single<DailyGoalsRow>();
-    data = retry.data;
-    error = retry.error;
+      .select(SELECT_WITH_ID)
+      .eq('child_id', childId)
+      .eq('date', record.date)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .returns<DailyGoalsRow[]>();
+
+    if (existing.error) {
+      error = existing.error;
+    } else if (existing.data?.[0]?.id) {
+      const update = await supabase
+        .from('daily_goals')
+        .update(payload)
+        .eq('id', existing.data[0].id)
+        .select(SELECT_WITH_ID)
+        .single<DailyGoalsRow>();
+      data = update.data;
+      error = update.error;
+    } else {
+      const insert = await supabase
+        .from('daily_goals')
+        .insert(payload)
+        .select(SELECT_WITH_ID)
+        .single<DailyGoalsRow>();
+      data = insert.data;
+      error = insert.error;
+    }
   }
 
   if (error) {
-    console.warn('[Goals] Upsert error for', childId, '-', error.message);
+    console.error('[Goals] WRITE failed', {
+      reason,
+      child_id: childId,
+      date: record.date,
+      payload,
+      error,
+    });
     return null;
   }
 
-  console.log('[Goals] Upsert succeeded for', childId);
+  console.info('[Goals] WRITE saved result', {
+    reason,
+    child_id: childId,
+    date: record.date,
+    row_id: data?.id ?? null,
+    updated_at: data?.updated_at ?? null,
+    goals_length: Array.isArray(data?.goals) ? data.goals.length : 0,
+    goal_ids: Array.isArray(data?.goal_ids) ? data.goal_ids : [],
+  });
   return data ? toSupabaseDailyGoalState(data) : null;
 }

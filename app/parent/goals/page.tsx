@@ -274,7 +274,14 @@ export default function GoalsPage() {
       return;
     }
 
-    const record = await randomizeAuthoritativeDailyGoalsForChild(childId);
+    let record;
+    try {
+      record = await randomizeAuthoritativeDailyGoalsForChild(childId);
+    } catch (error) {
+      console.error('[Goals] Randomise save failed', { childId, error });
+      showFeedback(`Could not save ${child.name}'s goals. Check Supabase daily_goals setup.`, 'warning');
+      return;
+    }
     const goals = record.goalItems
       ? record.goalItems.map(({ completed: _completed, ...goal }) => goal)
       : getDailyGoalsForChild(childId);
@@ -301,7 +308,14 @@ export default function GoalsPage() {
       showFeedback('Choose 3 different goals before saving.', 'warning');
       return;
     }
-    const record = await setAuthoritativeDailyGoalsForChild(childId, selected, 'manual');
+    let record;
+    try {
+      record = await setAuthoritativeDailyGoalsForChild(childId, selected, 'manual');
+    } catch (error) {
+      console.error('[Goals] Manual save failed', { childId, selected, error });
+      showFeedback(`Could not save ${child.name}'s goals. Check Supabase daily_goals setup.`, 'warning');
+      return;
+    }
     const goals = record.goalItems
       ? record.goalItems.map(({ completed: _completed, ...goal }) => goal)
       : getDailyGoalsForChild(childId);
