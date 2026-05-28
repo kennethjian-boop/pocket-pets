@@ -13,9 +13,9 @@ type DailyGoalsRow = {
   child_id: string;
   date: string;
   goals?: unknown[] | null;
-  goal_ids: unknown[] | null;
-  setup_mode: string;
-  previous_goal_ids: unknown[] | null;
+  goal_ids?: unknown[] | null;
+  setup_mode?: string | null;
+  previous_goal_ids?: unknown[] | null;
   updated_at: string;
 };
 
@@ -38,9 +38,25 @@ export type FetchDailyGoalsResult = {
 const VALID_SETUP_MODES = new Set<GoalSetupMode>(['auto', 'manual', 'random']);
 const SELECT_WITH_ID = 'id, child_id, date, goals, goal_ids, setup_mode, previous_goal_ids, updated_at';
 const SELECT = 'child_id, date, goal_ids, setup_mode, previous_goal_ids, updated_at';
+const CANONICAL_SELECT = 'id, child_id, date, goals, updated_at';
 
 function isMissingConflictConstraintError(message: string) {
   return /no unique|no exclusion|on conflict/i.test(message);
+}
+
+function getSupabaseErrorInfo(error: unknown) {
+  const supabaseError = error as {
+    code?: string;
+    message?: string;
+    details?: string;
+    hint?: string;
+  } | null;
+  return {
+    code: supabaseError?.code ?? null,
+    message: supabaseError?.message ?? String(error),
+    details: supabaseError?.details ?? null,
+    hint: supabaseError?.hint ?? null,
+  };
 }
 
 function normalizeGoalItem(item: unknown): DailyGoalInstance | null {
@@ -106,10 +122,10 @@ export async function fetchDailyGoalsForChildResult(
     .limit(1)
     .returns<DailyGoalsRow[]>();
 
-  if (error && /id|goals/i.test(error.message)) {
+  if (error && /id|goals|setup_mode|previous_goal_ids|goal_ids/i.test(error.message)) {
     const retry = await supabase
       .from('daily_goals')
-      .select(SELECT)
+      .select(CANONICAL_SELECT)
       .eq('child_id', childId)
       .eq('date', date)
       .order('updated_at', { ascending: false })
@@ -186,24 +202,27 @@ export async function upsertDailyGoalsForChild(
     child_id: childId,
     date: record.date,
     goals,
+    updated_at: new Date().toISOString(),
+  };
+  const legacyPayload = {
+    ...payload,
     goal_ids: record.goals,
     setup_mode: setupMode,
     previous_goal_ids: record.previousGoals ?? [],
-    updated_at: new Date().toISOString(),
   };
   console.info('[Goals] WRITE payload', payload);
 
   let { data, error } = await supabase
     .from('daily_goals')
     .upsert(payload, { onConflict: 'child_id,date' })
-    .select(SELECT_WITH_ID)
+    .select(CANONICAL_SELECT)
     .single<DailyGoalsRow>();
 
   if (error && isMissingConflictConstraintError(error.message)) {
-    console.warn('[Goals] Upsert conflict target unavailable; falling back to select/update/insert.', error.message);
+    console.warn('[Goals] Upsert conflict target unavailable; falling back to select/update/insert.', getSupabaseErrorInfo(error));
     const existing = await supabase
       .from('daily_goals')
-      .select(SELECT_WITH_ID)
+      .select(CANONICAL_SELECT)
       .eq('child_id', childId)
       .eq('date', record.date)
       .order('updated_at', { ascending: false })
@@ -217,7 +236,7 @@ export async function upsertDailyGoalsForChild(
         .from('daily_goals')
         .update(payload)
         .eq('id', existing.data[0].id)
-        .select(SELECT_WITH_ID)
+        .select(CANONICAL_SELECT)
         .single<DailyGoalsRow>();
       data = update.data;
       error = update.error;
@@ -225,7 +244,7 @@ export async function upsertDailyGoalsForChild(
       const insert = await supabase
         .from('daily_goals')
         .insert(payload)
-        .select(SELECT_WITH_ID)
+        .select(CANONICAL_SELECT)
         .single<DailyGoalsRow>();
       data = insert.data;
       error = insert.error;
@@ -233,12 +252,17 @@ export async function upsertDailyGoalsForChild(
   }
 
   if (error) {
+    const legacyColumnError = /column .*goal_ids|column .*setup_mode|column .*previous_goal_ids|previous_goal_ids|goal_ids|setup_mode/i.test(
+      error.message
+    );
     console.error('[Goals] WRITE failed', {
       reason,
       child_id: childId,
       date: record.date,
       payload,
-      error,
+      error: getSupabaseErrorInfo(error),
+      legacyPayloadNotUsed: legacyPayload,
+      legacyColumnError,
     });
     return null;
   }
@@ -250,7 +274,6 @@ export async function upsertDailyGoalsForChild(
     row_id: data?.id ?? null,
     updated_at: data?.updated_at ?? null,
     goals_length: Array.isArray(data?.goals) ? data.goals.length : 0,
-    goal_ids: Array.isArray(data?.goal_ids) ? data.goal_ids : [],
   });
   return data ? toSupabaseDailyGoalState(data) : null;
 }
