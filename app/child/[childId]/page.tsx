@@ -48,7 +48,7 @@ type SyncDebugInfo = {
   supabaseGoalRowId: string | null;
   supabaseGoalRowDate: string | null;
   goalsIds: string;
-  goalsSource: 'supabase' | 'supabase-generated' | 'local-fallback';
+  goalsSource: 'supabase' | 'supabase-generated' | 'local-fallback' | 'empty';
   goalsTitles: string;
   completedStates: string;
   generationHappened: boolean;
@@ -332,7 +332,11 @@ export default function ChildHome() {
         supabaseGoalRowId: capturedGoals?.remote?.id ?? null,
         supabaseGoalRowDate: capturedGoals?.remote?.date ?? null,
         goalsIds: capturedGoals?.record.goals.join(', ') ?? 'none',
-        goalsSource: capturedGoals?.source ?? 'local-fallback',
+        goalsSource: capturedGoals
+          ? capturedGoals.goals.length > 0
+            ? capturedGoals.source
+            : 'empty'
+          : 'local-fallback',
         goalsTitles: resolvedGoals.map((g) => g.title).join(' / '),
         completedStates: capturedGoals?.record.goalItems
           ?.map((goal) => `${goal.id}:${goal.completed ? 'yes' : 'no'}`)

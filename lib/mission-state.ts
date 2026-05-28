@@ -99,21 +99,6 @@ export interface AuthoritativeDailyGoalsResult {
 }
 
 const emptyDailyGoalsResult = (childId: string, today = getTodayKey()): AuthoritativeDailyGoalsResult => {
-  const cached = readDailyGoalsByChild()[childId];
-  if (cached?.date === today && getUniqueGoalIds(cached.goals).length === 3) {
-    const completed = cached.completed ?? {};
-    const goalItems = cached.goalItems ?? goalIdsToDailyGoalInstances(cached.goals, completed);
-    const record = { ...cached, goalItems, completed };
-    return {
-      record,
-      goals: dailyGoalInstancesToMissions(goalItems),
-      remote: null,
-      source: 'local-fallback',
-      generationHappened: false,
-      localStorageFallbackUsed: true,
-    };
-  }
-
   return {
     record: {
       date: today,
@@ -129,6 +114,28 @@ const emptyDailyGoalsResult = (childId: string, today = getTodayKey()): Authorit
     generationHappened: false,
     localStorageFallbackUsed: false,
   };
+};
+
+const localStorageFallbackDailyGoalsResult = (
+  childId: string,
+  today = getTodayKey()
+): AuthoritativeDailyGoalsResult => {
+  const cached = readDailyGoalsByChild()[childId];
+  if (cached?.date === today && getUniqueGoalIds(cached.goals).length === 3) {
+    const completed = cached.completed ?? {};
+    const goalItems = cached.goalItems ?? goalIdsToDailyGoalInstances(cached.goals, completed);
+    const record = { ...cached, goalItems, completed };
+    return {
+      record,
+      goals: dailyGoalInstancesToMissions(goalItems),
+      remote: null,
+      source: 'local-fallback',
+      generationHappened: false,
+      localStorageFallbackUsed: true,
+    };
+  }
+
+  return emptyDailyGoalsResult(childId, today);
 };
 
 export interface GoalSetupState {
@@ -844,6 +851,43 @@ export function enrichDailyGoalInstances(goals: DailyGoalInstance[]) {
   });
 }
 
+function getGoalTitlesFromIds(goalIds: string[]) {
+  return goalIdsToDailyMissions(goalIds).map((goal) => goal.title);
+}
+
+function logDailyGoalsReadDebug({
+  childId,
+  date,
+  source,
+  remote,
+  localRecord,
+  finalGoals,
+}: {
+  childId: string;
+  date: string;
+  source: AuthoritativeDailyGoalsSource | 'empty';
+  remote: SupabaseDailyGoalState | null;
+  localRecord: DailyGoalsRecord | undefined;
+  finalGoals: DailyMission[];
+}) {
+  console.info('[Goals] READ', {
+    source,
+    child_id: childId,
+    date_key: date,
+    supabase_row_id: remote?.id ?? null,
+    supabase_updated_at: remote?.updatedAt ?? null,
+    supabase_goal_titles: remote
+      ? remote.goals.length > 0
+        ? remote.goals.map((goal) => goal.title)
+        : getGoalTitlesFromIds(remote.goalIds)
+      : [],
+    localStorage_goal_titles: localRecord
+      ? localRecord.goalItems?.map((goal) => goal.title) ?? getGoalTitlesFromIds(localRecord.goals)
+      : [],
+    final_displayed_goal_titles: finalGoals.map((goal) => goal.title),
+  });
+}
+
 export function goalIdsToDailyMissions(goalIds: string[]) {
   const goals = goalIds
     .map((goalId) => getGoalById(goalId))
@@ -959,6 +1003,7 @@ export async function resolveAuthoritativeDailyGoalsForChild(
   childId: string
 ): Promise<AuthoritativeDailyGoalsResult> {
   const today = getTodayKey();
+  const localRecord = readDailyGoalsByChild()[childId];
   const fetchResult = await fetchDailyGoalsForChildResult(childId, today);
   const remote = fetchResult.state;
 
@@ -979,9 +1024,18 @@ export async function resolveAuthoritativeDailyGoalsForChild(
       ...readDailyGoalsByChild(),
       [childId]: record,
     });
+    const finalGoals = dailyGoalInstancesToMissions(remoteGoals);
+    logDailyGoalsReadDebug({
+      childId,
+      date: today,
+      source: 'supabase',
+      remote,
+      localRecord,
+      finalGoals,
+    });
     return {
       record,
-      goals: dailyGoalInstancesToMissions(remoteGoals),
+      goals: finalGoals,
       remote,
       source: 'supabase',
       generationHappened: false,
@@ -990,10 +1044,32 @@ export async function resolveAuthoritativeDailyGoalsForChild(
   }
 
   if (fetchResult.errorMessage) {
-    return emptyDailyGoalsResult(childId, today);
+    const result = localStorageFallbackDailyGoalsResult(childId, today);
+    logDailyGoalsReadDebug({
+      childId,
+      date: today,
+      source: result.localStorageFallbackUsed ? 'local-fallback' : 'empty',
+      remote,
+      localRecord,
+      finalGoals: result.goals,
+    });
+    return result;
   }
 
-  return emptyDailyGoalsResult(childId, today);
+  const result = emptyDailyGoalsResult(childId, today);
+  writeDailyGoalsByChild({
+    ...readDailyGoalsByChild(),
+    [childId]: result.record,
+  });
+  logDailyGoalsReadDebug({
+    childId,
+    date: today,
+    source: 'empty',
+    remote,
+    localRecord,
+    finalGoals: result.goals,
+  });
+  return result;
 }
 
 export async function updateDailyGoalCompletionForChild(
