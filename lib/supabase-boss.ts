@@ -1,7 +1,14 @@
 'use client';
 
 import { getSupabaseBrowserClient, hasSupabaseBrowserEnv } from '@/lib/supabase-browser';
-import type { BossBattleState, BossAttack, BossRewardConfig } from '@/lib/boss-battle';
+import {
+  FAMILY_BOSS_REWARD_KEY,
+  getSharedBossReward,
+  migrateSharedBossReward,
+  type BossBattleState,
+  type BossAttack,
+  type BossRewardConfig,
+} from '@/lib/boss-battle';
 
 // ─── DB row shape ────────────────────────────────────────────────────────────
 
@@ -58,10 +65,14 @@ function normalizeRewardsByChild(value: unknown): Record<string, BossRewardConfi
   return result;
 }
 
+function getStoredSharedReward(value: unknown): BossRewardConfig | undefined {
+  return normalizeRewardsByChild(value)[FAMILY_BOSS_REWARD_KEY];
+}
+
 // ─── Row → domain mapper ──────────────────────────────────────────────────────
 
 function toSupabaseBossState(row: BossStateRow): BossBattleState {
-  return {
+  return migrateSharedBossReward({
     bossId: row.boss_id,
     bossName: row.boss_name,
     bossTheme: row.boss_theme,
@@ -73,9 +84,10 @@ function toSupabaseBossState(row: BossStateRow): BossBattleState {
     weekLabel: row.week_label,
     isDefeated: row.is_defeated,
     rewardClaimed: row.reward_claimed,
+    victoryReward: getStoredSharedReward(row.rewards_by_child),
     rewardsByChild: normalizeRewardsByChild(row.rewards_by_child),
     attacks: normalizeAttacks(row.attacks),
-  };
+  });
 }
 
 // ─── Fetch ───────────────────────────────────────────────────────────────────
@@ -118,7 +130,10 @@ export async function upsertBossState(state: BossBattleState): Promise<void> {
       week_label: state.weekLabel,
       is_defeated: state.isDefeated,
       reward_claimed: state.rewardClaimed,
-      rewards_by_child: state.rewardsByChild ?? {},
+      rewards_by_child: {
+        ...state.rewardsByChild,
+        [FAMILY_BOSS_REWARD_KEY]: getSharedBossReward(state),
+      },
       attacks: state.attacks,
       updated_at: new Date().toISOString(),
     },

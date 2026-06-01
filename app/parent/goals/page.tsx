@@ -7,7 +7,6 @@ import { mockChildren } from '@/lib/mock-data';
 import {
   dailyMissionTemplates,
   getDailyGoalsForChild,
-  getGoalSetupMode,
   goalBank,
   mergeWithDefaultChildState,
   randomizeAuthoritativeDailyGoalsForChild,
@@ -20,7 +19,6 @@ import {
 } from '@/lib/mission-state';
 import {
   addBossAttack,
-  getBossBattleStorageKey,
   getMissionAttackSourceId,
   readBossBattleState,
   removeBossAttackBySourceId,
@@ -65,6 +63,8 @@ export default function GoalsPage() {
   const [goalModes, setGoalModes] = useState<GoalModeState>(
     () => buildGoalModes(false)
   );
+  const [activeChildId, setActiveChildId] = useState(mockChildren[0]?.id ?? '');
+  const [isHelpExpanded, setIsHelpExpanded] = useState(false);
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const [lastAction, setLastAction] = useState('');
   const [panelHighlight, setPanelHighlight] = useState<PanelHighlight | null>(null);
@@ -283,7 +283,10 @@ export default function GoalsPage() {
       return;
     }
     const goals = record.goalItems
-      ? record.goalItems.map(({ completed: _completed, ...goal }) => goal)
+      ? record.goalItems.map(({ completed, ...goal }) => {
+          void completed;
+          return goal;
+        })
       : getDailyGoalsForChild(childId);
     setGoalsByChild((cur) => ({ ...cur, [childId]: goals }));
     setGoalSelections((cur) => ({ ...cur, [childId]: record.goals }));
@@ -317,7 +320,10 @@ export default function GoalsPage() {
       return;
     }
     const goals = record.goalItems
-      ? record.goalItems.map(({ completed: _completed, ...goal }) => goal)
+      ? record.goalItems.map(({ completed, ...goal }) => {
+          void completed;
+          return goal;
+        })
       : getDailyGoalsForChild(childId);
     setGoalsByChild((cur) => ({ ...cur, [childId]: goals }));
     setGoalSelections((cur) => ({ ...cur, [childId]: record.goals }));
@@ -352,10 +358,25 @@ export default function GoalsPage() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
+  const activeChild = childrenData.find((child) => child.id === activeChildId);
+  const activeDashboardState = activeChild
+    ? dashboardStates[activeChild.id] ?? mergeWithDefaultChildState(activeChild, null)
+    : null;
+  const activeGoals = activeChild
+    ? goalsByChild[activeChild.id] ?? dailyMissionTemplates
+    : [];
+  const activeSelectedGoalIds = activeChild
+    ? goalSelections[activeChild.id] ?? activeGoals.map((goal) => goal.id)
+    : [];
+  const completedGoalCount = activeDashboardState
+    ? activeGoals.filter((mission) => activeDashboardState.completedMissions[mission.id]).length
+    : 0;
+  const isEditingActiveChild = activeChild ? Boolean(goalEditors[activeChild.id]) : false;
+
   return (
     <>
       {/* Header */}
-      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-white/70 bg-white/90 px-6 py-4 shadow-sm backdrop-blur-sm">
+      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-white/70 bg-white/90 px-4 py-3 shadow-sm backdrop-blur-sm sm:px-6">
         <div className="flex items-center gap-2.5">
           <span className="text-xl lg:hidden">✅</span>
           <div>
@@ -365,37 +386,24 @@ export default function GoalsPage() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <Link href="/">
           <button
             type="button"
-            onClick={() =>
-              setGoalEditors(
-                Object.fromEntries(mockChildren.map((c) => [c.id, true]))
-              )
-            }
-            className="rounded-full border border-purple-200 bg-purple-100 px-4 py-2 text-sm font-bold text-purple-800 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md active:scale-95"
+            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md active:scale-95"
           >
-            ✏️ Edit All Goals
+            ← Exit
           </button>
-          <Link href="/">
-            <button
-              type="button"
-              className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md active:scale-95"
-            >
-              ← Exit
-            </button>
-          </Link>
-        </div>
+        </Link>
       </header>
 
       {/* Body */}
       <motion.main
-        className="flex-1 overflow-y-auto flex flex-col items-center"
+        className="flex flex-1 flex-col items-center overflow-y-auto"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.3 }}
       >
-        <div className="w-full max-w-[1400px] space-y-6 px-6 py-6 lg:px-10 lg:py-8">
+        <div className="w-full max-w-2xl space-y-3 px-4 py-4 sm:px-6">
 
           {/* Feedback banner */}
           <AnimatePresence>
@@ -405,140 +413,126 @@ export default function GoalsPage() {
                 initial={{ opacity: 0, y: -6, scale: 0.98 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -6 }}
-                className={`rounded-2xl border px-5 py-3 text-sm font-bold shadow-sm ${feedbackClass[feedback.tone]}`}
+                className={`rounded-2xl border px-4 py-2.5 text-sm font-bold shadow-sm ${feedbackClass[feedback.tone]}`}
               >
                 {feedback.message}
               </motion.div>
             )}
           </AnimatePresence>
 
-          {/* Child goal cards */}
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            {childrenData.map((child) => {
-              const dashboardState =
-                dashboardStates[child.id] ?? mergeWithDefaultChildState(child, null);
-              const childGoals = goalsByChild[child.id] ?? dailyMissionTemplates;
-              const selectedGoalIds =
-                goalSelections[child.id] ?? childGoals.map((g) => g.id);
-              const completedGoalCount = childGoals.filter(
-                (m) => dashboardState.completedMissions[m.id]
-              ).length;
+          <div className="flex gap-1.5 rounded-2xl bg-slate-100 p-1.5">
+            {mockChildren.map((child) => (
+              <button
+                key={child.id}
+                type="button"
+                onClick={() => setActiveChildId(child.id)}
+                className={`flex-1 rounded-xl py-2.5 text-sm font-extrabold transition-all ${
+                  activeChildId === child.id
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {child.name}
+              </button>
+            ))}
+          </div>
 
-              return (
-                <div
-                  key={child.id}
-                  className={`${cardStyle} flex flex-col transition-all duration-300 ${getPanelClass(child.id)}`}
-                >
-                  {/* Name + Stats */}
-                  <div className="px-6 pt-6 pb-4">
-                    <h2 className="text-2xl font-extrabold text-slate-900">{child.name}</h2>
-                    <div className="mt-3 grid grid-cols-3 gap-2">
-                      <div className={`rounded-2xl bg-amber-50 px-3 py-2 transition-all duration-300 ${getStatClass(child.id, 'stars')}`}>
-                        <p className="text-xs font-bold uppercase tracking-wide text-amber-600">⭐ Stars</p>
-                        <p className="text-xl font-extrabold text-slate-900">{child.stars}</p>
+          {activeChild && activeDashboardState && (
+            <motion.div
+              key={`${activeChild.id}-${isEditingActiveChild ? 'edit' : 'verify'}`}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
+              className={`${cardStyle} transition-all duration-300 ${getPanelClass(activeChild.id)}`}
+            >
+              {isEditingActiveChild ? (
+                <div className="p-4">
+                  <button
+                    type="button"
+                    onClick={() => setGoalEditors((current) => ({ ...current, [activeChild.id]: false }))}
+                    className="text-sm font-black text-purple-700 transition hover:text-purple-900 active:scale-95"
+                  >
+                    ← Back to verification
+                  </button>
+                  <div className="mt-3">
+                    <h2 className="text-xl font-extrabold text-slate-900">Edit {activeChild.name}&apos;s Goals</h2>
+                    <p className="mt-1 text-xs font-semibold text-slate-400">
+                      Choose three different goals for today.
+                    </p>
+                  </div>
+                  <div className="mt-4 grid gap-3">
+                    {[0, 1, 2].map((slotIndex) => (
+                      <label key={slotIndex} className="grid gap-1">
+                        <span className="text-xs font-bold uppercase tracking-wide text-purple-600">
+                          Slot {slotIndex + 1}
+                        </span>
+                        <select
+                          value={activeSelectedGoalIds[slotIndex] ?? goalBank[slotIndex]?.id}
+                          onChange={(event) =>
+                            updateGoalSelection(activeChild.id, slotIndex, event.target.value)
+                          }
+                          className="min-w-0 rounded-xl border border-purple-100 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700"
+                        >
+                          {goalBank.map((goal) => (
+                            <option key={goal.id} value={goal.id}>
+                              {goal.title} — {goal.category} — +{goal.starReward}★ — {goal.bossDamage} boss dmg
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => handleSaveSelectedGoals(activeChild.id)}
+                      className="rounded-xl bg-purple-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-purple-700 active:scale-95"
+                    >
+                      Save Goals
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleUseAutoRandomDaily(activeChild.id)}
+                      className="rounded-xl bg-slate-100 px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-200 active:scale-95"
+                    >
+                      Auto Random Daily
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="border-b border-slate-100 px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h2 className="text-base font-extrabold text-slate-900">{activeChild.name}</h2>
+                        <p className="text-xs font-semibold text-slate-400">Current balance</p>
                       </div>
-                      <div className={`rounded-2xl bg-pink-50 px-3 py-2 transition-all duration-300 ${getStatClass(child.id, 'hearts')}`}>
-                        <p className="text-xs font-bold uppercase tracking-wide text-pink-600">❤️ Hearts</p>
-                        <p className="text-xl font-extrabold text-slate-900">{child.hearts}</p>
-                      </div>
-                      <div className={`rounded-2xl bg-blue-50 px-3 py-2 transition-all duration-300 ${getStatClass(child.id, 'screenEnergy')}`}>
-                        <p className="text-xs font-bold uppercase tracking-wide text-blue-600">📱 Energy</p>
-                        <p className="text-xl font-extrabold text-slate-900">{child.screenEnergy}</p>
+                      <div className="flex items-center gap-2 rounded-full bg-slate-50 px-3 py-1.5 text-sm font-black text-slate-700">
+                        <span className={getStatClass(activeChild.id, 'stars')}>⭐ {activeChild.stars}</span>
+                        <span className={getStatClass(activeChild.id, 'hearts')}>❤️ {activeChild.hearts}</span>
+                        <span className={getStatClass(activeChild.id, 'screenEnergy')}>⚡ {activeChild.screenEnergy}</span>
                       </div>
                     </div>
                   </div>
 
-                  {/* Today's Goals */}
-                  <div className="flex-1 border-t border-slate-100 px-6 py-5">
-                    <div className="flex items-center justify-between gap-2">
-                      <h3 className="text-sm font-extrabold uppercase tracking-wide text-slate-500">
-                        Today&apos;s Goals
-                      </h3>
-                      <span className="rounded-full bg-emerald-50 px-3 py-1 text-sm font-bold text-emerald-700">
-                        {completedGoalCount}/{childGoals.length}
-                      </span>
-                    </div>
-
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">
-                        {goalModes[child.id] === 'manual'
-                          ? 'Manual'
-                          : goalModes[child.id] === 'random'
-                            ? 'Randomised'
-                            : 'Auto daily'}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setGoalEditors((cur) => ({
-                            ...cur,
-                            [child.id]: !cur[child.id],
-                          }))
-                        }
-                        className="rounded-full bg-white px-3 py-1 text-xs font-bold text-purple-700 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-95"
-                      >
-                        {goalEditors[child.id] ? 'Close' : 'Edit Goals'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleRandomizeGoals(child.id)}
-                        className="rounded-full bg-white px-3 py-1 text-xs font-bold text-blue-700 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-95"
-                      >
-                        Randomise
-                      </button>
-                    </div>
-
-                    {goalEditors[child.id] && (
-                      <div className="mt-4 rounded-2xl border border-purple-100 bg-purple-50 p-4">
-                        <div className="grid gap-3">
-                          {[0, 1, 2].map((slotIndex) => (
-                            <label key={slotIndex} className="grid gap-1">
-                              <span className="text-xs font-bold uppercase tracking-wide text-purple-600">
-                                Slot {slotIndex + 1}
-                              </span>
-                              <select
-                                value={selectedGoalIds[slotIndex] ?? goalBank[slotIndex]?.id}
-                                onChange={(e) =>
-                                  updateGoalSelection(child.id, slotIndex, e.target.value)
-                                }
-                                className="rounded-xl border border-purple-100 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
-                              >
-                                {goalBank.map((goal) => (
-                                  <option key={goal.id} value={goal.id}>
-                                    {goal.title} — {goal.category} — +{goal.starReward}★ — {goal.bossDamage} boss dmg
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                          ))}
-                        </div>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleSaveSelectedGoals(child.id)}
-                            className="rounded-xl bg-purple-600 px-4 py-2 text-sm font-bold text-white transition-all hover:-translate-y-0.5 hover:bg-purple-700 hover:shadow-md active:scale-95"
-                          >
-                            Save Goals
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleUseAutoRandomDaily(child.id)}
-                            className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-95"
-                          >
-                            Auto Random Daily
-                          </button>
-                        </div>
+                  <div className="px-4 py-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h2 className="text-lg font-black text-slate-900">Today&apos;s Goals</h2>
+                        <p className="text-xs font-semibold text-slate-400">Tap a goal when you have verified it.</p>
                       </div>
-                    )}
+                      <span className="shrink-0 rounded-full bg-emerald-50 px-3 py-1 text-sm font-bold text-emerald-700">
+                        {completedGoalCount}/{activeGoals.length}
+                      </span>
+                    </div>
 
                     <div className="mt-3 space-y-2">
-                      {childGoals.map((mission) => {
-                        const completed =
-                          dashboardState.completedMissions[mission.id] ?? false;
+                      {activeGoals.map((mission) => {
+                        const completed = activeDashboardState.completedMissions[mission.id] ?? false;
                         return (
                           <label
                             key={mission.id}
-                            className={`flex cursor-pointer items-center justify-between gap-3 rounded-2xl px-4 py-3 shadow-sm transition-all duration-200 hover:shadow-md active:scale-[0.99] ${
+                            className={`flex min-h-[72px] cursor-pointer items-center justify-between gap-3 rounded-2xl px-3.5 py-3 shadow-sm transition-all duration-200 hover:shadow-md active:scale-[0.99] ${
                               completed
                                 ? 'bg-emerald-50 ring-1 ring-emerald-200'
                                 : 'bg-slate-50'
@@ -548,55 +542,81 @@ export default function GoalsPage() {
                               <input
                                 type="checkbox"
                                 checked={completed}
-                                onChange={(e) =>
-                                  handleMissionCompletion(
-                                    child.id,
-                                    mission.id,
-                                    e.target.checked
-                                  )
+                                onChange={(event) =>
+                                  handleMissionCompletion(activeChild.id, mission.id, event.target.checked)
                                 }
-                                className="h-5 w-5 shrink-0 rounded border-emerald-300 accent-emerald-500"
+                                className="h-6 w-6 shrink-0 rounded border-emerald-300 accent-emerald-500"
                               />
                               <span className="min-w-0">
-                                <span
-                                  className={`block text-sm font-bold ${
-                                    completed ? 'text-emerald-900' : 'text-slate-900'
-                                  }`}
-                                >
+                                <span className={`block text-base font-extrabold leading-tight ${
+                                  completed ? 'text-emerald-900' : 'text-slate-900'
+                                }`}>
                                   {mission.title}
                                 </span>
-                                <span className="block text-xs text-slate-400">
+                                <span className="mt-0.5 block text-xs leading-snug text-slate-400">
                                   {mission.description}
                                 </span>
                               </span>
                             </span>
-                            <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-sm font-bold text-amber-700">
+                            <span className="shrink-0 rounded-full bg-amber-100 px-2 py-1 text-xs font-bold text-amber-700">
                               +{mission.starReward ?? mission.reward}★
                             </span>
                           </label>
                         );
                       })}
                     </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
 
-          {/* How goals work — tips panel */}
-          <div className="rounded-2xl border border-violet-100 bg-violet-50/60 px-6 py-5">
-            <h3 className="text-sm font-extrabold text-violet-900">How Goals Work</h3>
-            <div className="mt-3 grid gap-3 text-sm text-violet-700 sm:grid-cols-3">
-              <p className="rounded-xl bg-white/70 px-4 py-3">
-                ✅ <strong>Verified goals</strong> automatically deal damage to the Family Boss.
-              </p>
-              <p className="rounded-xl bg-white/70 px-4 py-3">
-                🎲 <strong>Randomise</strong> is locked if a child already has completed goals.
-              </p>
-              <p className="rounded-xl bg-white/70 px-4 py-3">
-                ⭐ <strong>Stars</strong> are awarded when goals are verified by a parent.
-              </p>
-            </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-500">
+                        {goalModes[activeChild.id] === 'manual'
+                          ? 'Manual goals'
+                          : goalModes[activeChild.id] === 'random'
+                            ? 'Randomised today'
+                            : 'Auto daily goals'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setGoalEditors((current) => ({ ...current, [activeChild.id]: true }))}
+                        className="rounded-full bg-purple-50 px-3 py-1.5 text-xs font-bold text-purple-700 transition hover:bg-purple-100 active:scale-95"
+                      >
+                        ✏ Edit Goals
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRandomizeGoals(activeChild.id)}
+                        className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 transition hover:bg-blue-100 active:scale-95"
+                      >
+                        🎲 Randomise
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </motion.div>
+          )}
+
+          <div className="rounded-2xl border border-violet-100 bg-violet-50/60">
+            <button
+              type="button"
+              onClick={() => setIsHelpExpanded((current) => !current)}
+              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-extrabold text-violet-900 transition hover:bg-violet-50 active:scale-[0.99]"
+              aria-expanded={isHelpExpanded}
+            >
+              <span>{isHelpExpanded ? '▼' : '▶'} How Goals Work</span>
+            </button>
+            {isHelpExpanded && (
+              <div className="grid gap-2 border-t border-violet-100 px-4 py-3 text-sm text-violet-700 sm:grid-cols-3">
+                <p className="rounded-xl bg-white/70 px-3 py-2">
+                  ✅ <strong>Verified goals</strong> automatically deal damage to the Family Boss.
+                </p>
+                <p className="rounded-xl bg-white/70 px-3 py-2">
+                  🎲 <strong>Randomise</strong> is locked if a child already has completed goals.
+                </p>
+                <p className="rounded-xl bg-white/70 px-3 py-2">
+                  ⭐ <strong>Stars</strong> are awarded when goals are verified by a parent.
+                </p>
+              </div>
+            )}
           </div>
 
         </div>

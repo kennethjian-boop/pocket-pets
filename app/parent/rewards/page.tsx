@@ -31,7 +31,6 @@ import {
   StatPulse,
 } from '../_lib';
 import { fetchRewardTemplates, upsertRewardTemplates } from '@/lib/supabase-reward-templates';
-import { PillButton } from '../_components/PillButton';
 
 type NewTemplateCategory =
   | 'stars-positive'
@@ -78,9 +77,9 @@ function StatStrip({
   getStatClass: (childId: string, stat: StatKey) => string;
 }) {
   const stats: { label: string; value: number; icon: string; key: StatKey; toneClass: string }[] = [
-    { label: 'Stars', value: child.stars, icon: '⭐', key: 'stars', toneClass: 'border-amber-100 bg-amber-50 text-amber-800' },
-    { label: 'Hearts', value: child.hearts, icon: '❤️', key: 'hearts', toneClass: 'border-pink-100 bg-pink-50 text-pink-800' },
-    { label: 'Energy', value: child.screenEnergy, icon: '⚡', key: 'screenEnergy', toneClass: 'border-blue-100 bg-blue-50 text-blue-800' },
+    { label: 'Stars', value: child.stars, icon: '⭐', key: 'stars', toneClass: 'border-amber-100/70 bg-amber-50 text-amber-800' },
+    { label: 'Hearts', value: child.hearts, icon: '❤️', key: 'hearts', toneClass: 'border-pink-100/70 bg-pink-50 text-pink-800' },
+    { label: 'Energy', value: child.screenEnergy, icon: '⚡', key: 'screenEnergy', toneClass: 'border-blue-100/70 bg-blue-50 text-blue-800' },
   ];
 
   return (
@@ -88,14 +87,55 @@ function StatStrip({
       {stats.map(({ label, value, icon, key, toneClass }) => (
         <div
           key={key}
-          className={`flex flex-col items-center rounded-2xl border px-2 py-3 transition-all duration-300 ${toneClass} ${getStatClass(child.id, key)}`}
+          className={`flex flex-col items-center justify-center rounded-xl border px-1.5 py-2 transition-all duration-300 ${toneClass} ${getStatClass(child.id, key)}`}
         >
-          <span className="text-xl">{icon}</span>
-          <span className="text-2xl font-black tabular-nums leading-none">{value}</span>
-          <span className="mt-0.5 text-[10px] font-black uppercase tracking-wide opacity-70">{label}</span>
+          <span className="flex items-center gap-1">
+            <span className="text-sm">{icon}</span>
+            <span className="text-lg font-black tabular-nums leading-none">{value}</span>
+          </span>
+          <span className="mt-0.5 text-[9px] font-black uppercase tracking-wide opacity-70">{label}</span>
         </div>
       ))}
     </div>
+  );
+}
+
+function DailyRewardButton({
+  template,
+  onReward,
+}: {
+  template: RewardTemplate;
+  onReward: () => void;
+}) {
+  const delta = getRewardDelta(template);
+  const isDeduction = delta < 0;
+
+  return (
+    <motion.button
+      type="button"
+      whileTap={{ scale: 0.96 }}
+      onClick={onReward}
+      className={`flex min-h-[54px] min-w-0 items-center gap-2 rounded-xl border px-2.5 py-2 text-left shadow-sm transition active:scale-95 ${
+        isDeduction
+          ? 'border-rose-100 bg-white text-rose-950 hover:bg-rose-50'
+          : 'border-slate-100 bg-white text-slate-900 hover:bg-slate-50'
+      }`}
+      aria-label={`${isDeduction ? 'Deduct' : 'Add'} ${Math.abs(delta)} ${
+        currencyLabel[template.currencyType]
+      } for ${template.label}`}
+    >
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-base">
+        {template.icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-extrabold leading-tight">
+          {template.label}
+        </span>
+        <span className={`mt-0.5 block text-xs font-black ${isDeduction ? 'text-rose-500' : 'text-slate-500'}`}>
+          {delta > 0 ? '+' : '-'}{Math.abs(delta)} {currencyLabel[template.currencyType].toLowerCase()}
+        </span>
+      </span>
+    </motion.button>
   );
 }
 
@@ -105,7 +145,10 @@ export default function RewardsPage() {
     () => buildDashboardStates(false)
   );
   const [rewardTemplates, setRewardTemplates] = useState<RewardTemplate[]>(defaultRewardTemplates);
-  const [activeTab, setActiveTab] = useState<string>(mockChildren[0]?.id ?? 'templates');
+  const [activeChildId, setActiveChildId] = useState<string>(mockChildren[0]?.id ?? '');
+  const [isManaging, setIsManaging] = useState(false);
+  const [expandedTemplateId, setExpandedTemplateId] = useState<string | null>(null);
+  const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
   const [newIcon, setNewIcon] = useState('');
   const [newLabel, setNewLabel] = useState('');
   const [newCategory, setNewCategory] = useState<NewTemplateCategory>('stars-positive');
@@ -227,7 +270,11 @@ export default function RewardsPage() {
     );
   };
 
-  const handleTemplateEdit = (id: string, field: 'icon' | 'label' | 'amount', value: string) => {
+  const handleTemplateEdit = (
+    id: string,
+    field: 'icon' | 'label' | 'amount' | 'currencyType' | 'rewardType',
+    value: string
+  ) => {
     setRewardTemplates((cur) => {
       const next = cur.map((t) =>
         t.id === id
@@ -274,6 +321,7 @@ export default function RewardsPage() {
     setNewLabel('');
     setNewAmount('1');
     setAddError('');
+    setIsCreatingTemplate(false);
     showFeedback(`"${label}" reward added.`, 'success');
   };
 
@@ -283,24 +331,24 @@ export default function RewardsPage() {
       saveRewardTemplates(next);
       return next;
     });
+    setExpandedTemplateId(null);
   };
 
-  const positiveTemplates = rewardTemplates.filter((t) => t.rewardType === 'positive');
   const deductionTemplates = rewardTemplates.filter((t) => t.rewardType === 'deduction');
+  const rewardGroups: { label: string; color: string; templates: RewardTemplate[] }[] = [
+    { label: 'Star Rewards', color: 'text-amber-600', templates: rewardTemplates.filter((t) => t.rewardType === 'positive' && t.currencyType === 'stars') },
+    { label: 'Heart Rewards', color: 'text-pink-500', templates: rewardTemplates.filter((t) => t.rewardType === 'positive' && t.currencyType === 'hearts') },
+    { label: 'Screen Energy', color: 'text-blue-500', templates: rewardTemplates.filter((t) => t.rewardType === 'positive' && t.currencyType === 'screen-energy') },
+  ].filter((group) => group.templates.length > 0);
 
   const editorGroups: { label: string; color: string; templates: RewardTemplate[] }[] = [
     { label: 'Star Rewards', color: 'text-amber-700', templates: rewardTemplates.filter((t) => t.rewardType === 'positive' && t.currencyType === 'stars') },
     { label: 'Heart Rewards', color: 'text-pink-600', templates: rewardTemplates.filter((t) => t.rewardType === 'positive' && t.currencyType === 'hearts') },
-    { label: 'Energy Rewards', color: 'text-blue-600', templates: rewardTemplates.filter((t) => t.rewardType === 'positive' && t.currencyType === 'screen-energy') },
-    { label: 'Deductions', color: 'text-rose-600', templates: deductionTemplates },
+    { label: 'Screen Energy', color: 'text-blue-600', templates: rewardTemplates.filter((t) => t.rewardType === 'positive' && t.currencyType === 'screen-energy') },
+    { label: 'Consequences', color: 'text-rose-600', templates: deductionTemplates },
   ].filter((g) => g.templates.length > 0);
 
-  const activeChild = childrenData.find((c) => c.id === activeTab);
-
-  const tabs = [
-    ...mockChildren.map((c) => ({ id: c.id, label: c.name })),
-    { id: 'templates', label: 'Templates' },
-  ];
+  const activeChild = childrenData.find((c) => c.id === activeChildId);
 
   return (
     <>
@@ -308,7 +356,9 @@ export default function RewardsPage() {
         <div className="flex items-center gap-2.5">
           <span className="text-xl lg:hidden">🎁</span>
           <div>
-            <h1 className="text-base font-extrabold text-slate-900 lg:text-lg">Rewards</h1>
+            <h1 className="text-base font-extrabold text-slate-900 lg:text-lg">
+              {isManaging ? 'Manage Rewards' : 'Rewards'}
+            </h1>
             {lastAction && (
               <p className="text-xs text-slate-400">Last: {lastAction}</p>
             )}
@@ -346,163 +396,190 @@ export default function RewardsPage() {
             )}
           </AnimatePresence>
 
-          {/* ── TAB BAR ─────────────────────────────────────────────────────── */}
-          <div className="mb-4 flex gap-1.5 rounded-2xl bg-slate-100 p-1.5">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex-1 rounded-xl py-2.5 text-sm font-extrabold transition-all ${
-                  activeTab === tab.id
-                    ? 'bg-white text-slate-900 shadow-sm'
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                {tab.id === 'templates' ? '✏️ ' : ''}
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
-          {/* ── CHILD TAB ───────────────────────────────────────────────────── */}
-          {activeChild && (
+          {!isManaging && (
             <motion.div
-              key={activeTab}
+              key="rewards"
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.2 }}
-              className="space-y-4"
+              className="space-y-3"
             >
-              {/* Stats card */}
-              <div
-                className={`rounded-3xl border border-white/70 bg-white/90 p-4 shadow-lg transition-all duration-300 ${
-                  panelHighlight?.childId === activeChild.id
-                    ? panelHighlightClass[panelHighlight.tone]
-                    : ''
-                }`}
-              >
-                <div className="mb-3 flex items-center gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-100 via-pink-100 to-amber-100 text-lg font-black text-purple-700 shadow-sm">
-                    {activeChild.name.charAt(0)}
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-black text-slate-900">{activeChild.name}</h2>
-                    <p className="text-xs font-bold text-slate-400">Current balance</p>
-                  </div>
-                </div>
-                <StatStrip child={activeChild} getStatClass={getStatClass} />
+              <div className="flex gap-1.5 rounded-2xl bg-slate-100 p-1.5">
+                {mockChildren.map((child) => (
+                  <button
+                    key={child.id}
+                    type="button"
+                    onClick={() => setActiveChildId(child.id)}
+                    className={`flex-1 rounded-xl py-2.5 text-sm font-extrabold transition-all ${
+                      activeChildId === child.id
+                        ? 'bg-white text-slate-900 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    {child.name}
+                  </button>
+                ))}
               </div>
 
-              {/* Quick rewards grid */}
-              {positiveTemplates.length > 0 && (
-                <div className="rounded-3xl border border-white/70 bg-white/90 p-4 shadow-lg">
-                  <p className="mb-3 text-xs font-black uppercase tracking-wide text-slate-500">
-                    ⭐ Quick Rewards
-                  </p>
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                    {positiveTemplates.map((template) => (
-                      <PillButton
-                        key={template.id}
-                        template={template}
-                        onReward={() => handleReward(activeChild.id, template)}
-                      />
-                    ))}
+              {activeChild && (
+                <>
+                  <div
+                    className={`rounded-2xl border border-white/50 bg-white/90 p-3 shadow-md transition-all duration-300 ${
+                      panelHighlight?.childId === activeChild.id
+                        ? panelHighlightClass[panelHighlight.tone]
+                        : ''
+                    }`}
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                      <div>
+                        <h2 className="text-base font-black text-slate-900">{activeChild.name}</h2>
+                        <p className="text-xs font-bold text-slate-400">Current balance</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsManaging(true)}
+                        className="shrink-0 rounded-full border border-purple-100/70 bg-purple-50 px-3 py-1.5 text-xs font-black text-purple-700 shadow-sm transition hover:bg-purple-100 active:scale-95"
+                      >
+                        ⚙ Manage Rewards
+                      </button>
+                    </div>
+                    <StatStrip child={activeChild} getStatClass={getStatClass} />
                   </div>
-                </div>
-              )}
 
-              {/* Consequences grid */}
-              {deductionTemplates.length > 0 && (
-                <div className="rounded-3xl border border-rose-100 bg-rose-50/60 p-4 shadow-lg">
-                  <p className="mb-3 text-xs font-black uppercase tracking-wide text-rose-600">
-                    ❌ Consequences
-                  </p>
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                    {deductionTemplates.map((template) => (
-                      <PillButton
-                        key={template.id}
-                        template={template}
-                        onReward={() => handleReward(activeChild.id, template)}
-                      />
-                    ))}
-                  </div>
-                </div>
+                  {rewardGroups.map((group) => (
+                    <section
+                      key={group.label}
+                      className="rounded-2xl border border-white/50 bg-white/90 p-3 shadow-md"
+                    >
+                      <h2 className={`mb-1.5 text-[10px] font-extrabold uppercase tracking-wide ${group.color}`}>
+                        {group.label}
+                      </h2>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        {group.templates.map((template) => (
+                          <DailyRewardButton
+                            key={template.id}
+                            template={template}
+                            onReward={() => handleReward(activeChild.id, template)}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+
+                  {deductionTemplates.length > 0 && (
+                    <section className="rounded-2xl border border-rose-100/70 bg-rose-50/50 p-3 shadow-md">
+                      <h2 className="mb-1.5 text-[10px] font-extrabold uppercase tracking-wide text-rose-500">
+                        Consequences
+                      </h2>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        {deductionTemplates.map((template) => (
+                          <DailyRewardButton
+                            key={template.id}
+                            template={template}
+                            onReward={() => handleReward(activeChild.id, template)}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                </>
               )}
             </motion.div>
           )}
 
-          {/* ── TEMPLATES TAB ───────────────────────────────────────────────── */}
-          {activeTab === 'templates' && (
+          {isManaging && (
             <motion.div
-              key="templates"
+              key="manage-rewards"
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.2 }}
               className="space-y-4"
             >
-              {/* Add custom reward */}
-              <div className="rounded-3xl border border-white/70 bg-white/90 p-4 shadow-lg">
-                <p className="mb-3 text-xs font-black uppercase tracking-wide text-purple-600">
-                  ➕ Add Custom Reward
-                </p>
-                <div className="space-y-2">
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={newIcon}
-                      onChange={(e) => setNewIcon(e.target.value)}
-                      placeholder="⭐"
-                      className="w-14 shrink-0 rounded-xl border border-slate-200 bg-white px-2 py-2 text-center text-base font-bold text-slate-800 focus:outline-none focus:ring-1 focus:ring-purple-300"
-                    />
-                    <input
-                      type="text"
-                      value={newLabel}
-                      onChange={(e) => {
-                        setNewLabel(e.target.value);
-                        setAddError('');
-                      }}
-                      placeholder="Label (e.g. Homework Hero)"
-                      className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 focus:outline-none focus:ring-1 focus:ring-purple-300"
-                    />
+              <button
+                type="button"
+                onClick={() => setIsManaging(false)}
+                className="text-sm font-black text-purple-700 transition hover:text-purple-900 active:scale-95"
+              >
+                ← Back to rewards
+              </button>
+
+              <div className="rounded-2xl border border-purple-100/70 bg-white/90 shadow-md">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsCreatingTemplate((current) => !current);
+                    setExpandedTemplateId(null);
+                    setAddError('');
+                  }}
+                  className="flex w-full items-center justify-between gap-3 px-3.5 py-3 text-left text-sm font-black text-purple-700 transition hover:bg-purple-50 active:scale-[0.99]"
+                  aria-expanded={isCreatingTemplate}
+                >
+                  <span>＋ Create Reward</span>
+                  <span className="text-base" aria-hidden="true">{isCreatingTemplate ? '−' : '+'}</span>
+                </button>
+                {isCreatingTemplate && (
+                  <div className="space-y-2 border-t border-purple-100/70 px-3.5 py-3">
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={newIcon}
+                        onChange={(e) => setNewIcon(e.target.value)}
+                        placeholder="⭐"
+                        aria-label="New reward icon"
+                        className="w-12 shrink-0 rounded-xl border border-slate-200 bg-white px-2 py-2 text-center text-base font-bold text-slate-800 focus:outline-none focus:ring-1 focus:ring-purple-300"
+                      />
+                      <input
+                        type="text"
+                        value={newLabel}
+                        onChange={(e) => {
+                          setNewLabel(e.target.value);
+                          setAddError('');
+                        }}
+                        placeholder="Label (e.g. Homework Hero)"
+                        aria-label="New reward label"
+                        className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 focus:outline-none focus:ring-1 focus:ring-purple-300"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <select
+                        value={newCategory}
+                        onChange={(e) => {
+                          setNewCategory(e.target.value as NewTemplateCategory);
+                          setAddError('');
+                        }}
+                        aria-label="New reward category"
+                        className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-purple-300"
+                      >
+                        {Object.entries(categoryConfig).map(([value, config]) => (
+                          <option key={value} value={value}>
+                            {config.label}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="number"
+                        min={1}
+                        value={newAmount}
+                        onChange={(e) => {
+                          setNewAmount(e.target.value);
+                          setAddError('');
+                        }}
+                        aria-label="New reward amount"
+                        className="w-16 rounded-xl border border-slate-200 bg-white px-2 py-2 text-center text-sm font-black text-slate-800 focus:outline-none focus:ring-1 focus:ring-purple-300"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddTemplate}
+                        className="rounded-xl bg-purple-600 px-3.5 py-2 text-sm font-black text-white shadow-sm transition hover:bg-purple-700 active:scale-95"
+                      >
+                        Add
+                      </button>
+                    </div>
+                    {addError && (
+                      <p className="text-xs font-bold text-rose-500">{addError}</p>
+                    )}
                   </div>
-                  <div className="flex gap-2">
-                    <select
-                      value={newCategory}
-                      onChange={(e) => {
-                        setNewCategory(e.target.value as NewTemplateCategory);
-                        setAddError('');
-                      }}
-                      className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-purple-300"
-                    >
-                      {Object.entries(categoryConfig).map(([value, config]) => (
-                        <option key={value} value={value}>
-                          {config.label}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      type="number"
-                      min={1}
-                      value={newAmount}
-                      onChange={(e) => {
-                        setNewAmount(e.target.value);
-                        setAddError('');
-                      }}
-                      className="w-20 rounded-xl border border-slate-200 bg-white px-3 py-2 text-center text-sm font-black text-slate-800 focus:outline-none focus:ring-1 focus:ring-purple-300"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleAddTemplate}
-                      className="rounded-xl bg-purple-600 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-purple-700 active:scale-95"
-                    >
-                      Add
-                    </button>
-                  </div>
-                  {addError && (
-                    <p className="text-xs font-bold text-rose-500">{addError}</p>
-                  )}
-                </div>
+                )}
               </div>
 
               {/* Template groups */}
@@ -514,55 +591,125 @@ export default function RewardsPage() {
                   <p className={`mb-3 text-xs font-black uppercase tracking-wide ${group.color}`}>
                     {group.label}
                   </p>
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     {group.templates.map((template) => {
                       const delta = getRewardDelta(template);
+                      const isExpanded = expandedTemplateId === template.id;
                       return (
                         <div
                           key={template.id}
-                          className="flex items-center gap-2 rounded-2xl border border-slate-100 bg-slate-50 p-2.5"
+                          className="overflow-hidden rounded-xl border border-slate-100 bg-slate-50"
                         >
-                          <input
-                            type="text"
-                            value={template.icon}
-                            onChange={(e) =>
-                              handleTemplateEdit(template.id, 'icon', e.target.value)
-                            }
-                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-center text-base shadow-sm focus:outline-none focus:ring-1 focus:ring-purple-300"
-                          />
-                          <input
-                            type="text"
-                            value={template.label}
-                            onChange={(e) =>
-                              handleTemplateEdit(template.id, 'label', e.target.value)
-                            }
-                            className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-bold text-slate-800 focus:outline-none focus:ring-1 focus:ring-purple-300"
-                          />
-                          <input
-                            type="number"
-                            min={0}
-                            value={template.amount}
-                            onChange={(e) =>
-                              handleTemplateEdit(template.id, 'amount', e.target.value)
-                            }
-                            className="w-14 rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-center text-sm font-black text-slate-800 focus:outline-none focus:ring-1 focus:ring-purple-300"
-                          />
-                          <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-black text-slate-600 shadow-sm">
-                            {currencyEmoji[template.currencyType]}{' '}
-                            {delta > 0 ? '+' : '-'}
-                            {Math.abs(delta)}
-                          </span>
-                          {template.id.startsWith('custom-') ? (
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteTemplate(template.id)}
-                              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-rose-100 bg-rose-50 text-lg font-black text-rose-500 transition hover:bg-rose-100 active:scale-95"
-                              aria-label={`Delete ${template.label}`}
-                            >
-                              ×
-                            </button>
-                          ) : (
-                            <span className="h-8 w-8 shrink-0" />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setExpandedTemplateId(isExpanded ? null : template.id);
+                              setIsCreatingTemplate(false);
+                            }}
+                            className="flex min-h-12 w-full items-center gap-2.5 px-3 py-2 text-left transition hover:bg-white active:scale-[0.99]"
+                            aria-expanded={isExpanded}
+                          >
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-base shadow-sm">
+                              {template.icon}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate text-sm font-extrabold text-slate-800">
+                              {template.label}
+                            </span>
+                            <span className={`shrink-0 text-xs font-black ${delta < 0 ? 'text-rose-600' : 'text-slate-600'}`}>
+                              {delta > 0 ? '+' : '-'}{Math.abs(delta)} {currencyEmoji[template.currencyType]}
+                            </span>
+                            <span className="shrink-0 text-xs font-black text-slate-400" aria-hidden="true">
+                              {isExpanded ? '▲' : '▼'}
+                            </span>
+                          </button>
+                          {isExpanded && (
+                            <div className="space-y-3 border-t border-slate-100 bg-white/80 px-3 py-3">
+                              <div className="grid grid-cols-[48px_minmax(0,1fr)_68px] gap-2">
+                                <label className="space-y-1 text-[10px] font-black uppercase tracking-wide text-slate-400">
+                                  Icon
+                                  <input
+                                    type="text"
+                                    value={template.icon}
+                                    onChange={(e) =>
+                                      handleTemplateEdit(template.id, 'icon', e.target.value)
+                                    }
+                                    className="h-9 w-full rounded-xl border border-slate-200 bg-white px-2 text-center text-base text-slate-800 focus:outline-none focus:ring-1 focus:ring-purple-300"
+                                  />
+                                </label>
+                                <label className="min-w-0 space-y-1 text-[10px] font-black uppercase tracking-wide text-slate-400">
+                                  Label
+                                  <input
+                                    type="text"
+                                    value={template.label}
+                                    onChange={(e) =>
+                                      handleTemplateEdit(template.id, 'label', e.target.value)
+                                    }
+                                    className="h-9 w-full rounded-xl border border-slate-200 bg-white px-2.5 text-sm font-bold normal-case tracking-normal text-slate-800 focus:outline-none focus:ring-1 focus:ring-purple-300"
+                                  />
+                                </label>
+                                <label className="space-y-1 text-[10px] font-black uppercase tracking-wide text-slate-400">
+                                  Amount
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={template.amount}
+                                    onChange={(e) =>
+                                      handleTemplateEdit(template.id, 'amount', e.target.value)
+                                    }
+                                    className="h-9 w-full rounded-xl border border-slate-200 bg-white px-2 text-center text-sm font-black tracking-normal text-slate-800 focus:outline-none focus:ring-1 focus:ring-purple-300"
+                                  />
+                                </label>
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <label className="space-y-1 text-[10px] font-black uppercase tracking-wide text-slate-400">
+                                  Currency
+                                  <select
+                                    value={template.currencyType}
+                                    onChange={(e) =>
+                                      handleTemplateEdit(template.id, 'currencyType', e.target.value)
+                                    }
+                                    className="h-9 w-full rounded-xl border border-slate-200 bg-white px-2 text-xs font-bold normal-case tracking-normal text-slate-700 focus:outline-none focus:ring-1 focus:ring-purple-300"
+                                  >
+                                    {Object.entries(currencyLabel).map(([value, label]) => (
+                                      <option key={value} value={value}>{label}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label className="space-y-1 text-[10px] font-black uppercase tracking-wide text-slate-400">
+                                  Type
+                                  <select
+                                    value={template.rewardType}
+                                    onChange={(e) =>
+                                      handleTemplateEdit(template.id, 'rewardType', e.target.value)
+                                    }
+                                    className="h-9 w-full rounded-xl border border-slate-200 bg-white px-2 text-xs font-bold normal-case tracking-normal text-slate-700 focus:outline-none focus:ring-1 focus:ring-purple-300"
+                                  >
+                                    <option value="positive">Reward</option>
+                                    <option value="deduction">Consequence</option>
+                                  </select>
+                                </label>
+                              </div>
+                              <div className="flex items-center justify-between gap-3">
+                                {template.id.startsWith('custom-') ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteTemplate(template.id)}
+                                    className="text-xs font-black text-rose-500 transition hover:text-rose-700 active:scale-95"
+                                  >
+                                    Delete reward
+                                  </button>
+                                ) : (
+                                  <span />
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => setExpandedTemplateId(null)}
+                                  className="ml-auto rounded-full bg-slate-100 px-3 py-1.5 text-xs font-black text-slate-600 transition hover:bg-slate-200 active:scale-95"
+                                >
+                                  Collapse
+                                </button>
+                              </div>
+                            </div>
                           )}
                         </div>
                       );

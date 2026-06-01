@@ -22,11 +22,46 @@ import {
   StatKey,
   StatPulse,
 } from '../_lib';
-import { PillButton } from '../_components/PillButton';
+
+function EnergyActionButton({
+  template,
+  onReward,
+}: {
+  template: RewardTemplate;
+  onReward: () => void;
+}) {
+  const delta = getRewardDelta(template);
+  const isDeduction = delta < 0;
+
+  return (
+    <motion.button
+      type="button"
+      whileTap={{ scale: 0.97 }}
+      onClick={onReward}
+      className={`flex min-h-[68px] w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left shadow-sm transition hover:shadow-md active:scale-[0.98] ${
+        isDeduction
+          ? 'border-rose-100 bg-rose-50/70 text-rose-900 hover:bg-rose-50'
+          : 'border-blue-100 bg-blue-50/80 text-blue-900 hover:bg-blue-50'
+      }`}
+    >
+      <span>
+        <span className="block text-sm font-black">
+          {isDeduction ? '− Remove Screen Energy' : '+ Add Screen Energy'}
+        </span>
+        <span className="mt-0.5 block text-xs font-semibold opacity-70">{template.label}</span>
+      </span>
+      <span className={`shrink-0 rounded-full bg-white px-3 py-1.5 text-sm font-black shadow-sm ${
+        isDeduction ? 'text-rose-600' : 'text-blue-700'
+      }`}>
+        {delta > 0 ? '+' : '-'}{Math.abs(delta)} ⚡
+      </span>
+    </motion.button>
+  );
+}
 
 export default function ScreenEnergyPage() {
   const [childrenData, setChildrenData] = useState(mockChildren);
-  const [dashboardStates, setDashboardStates] = useState<DashboardStateByChild>(
+  const [, setDashboardStates] = useState<DashboardStateByChild>(
     () => buildDashboardStates(false)
   );
   const [rewardTemplates, setRewardTemplates] = useState<RewardTemplate[]>(
@@ -36,6 +71,8 @@ export default function ScreenEnergyPage() {
   const [lastAction, setLastAction] = useState('');
   const [panelHighlight, setPanelHighlight] = useState<PanelHighlight | null>(null);
   const [statPulse, setStatPulse] = useState<StatPulse[]>([]);
+  const [activeChildId, setActiveChildId] = useState(mockChildren[0]?.id ?? '');
+  const [isHelpExpanded, setIsHelpExpanded] = useState(false);
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const panelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const statTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -159,13 +196,14 @@ export default function ScreenEnergyPage() {
   const screenEnergyDeductions = rewardTemplates.filter(
     (t) => t.rewardType === 'deduction' && t.currencyType === 'screen-energy'
   );
+  const activeChild = childrenData.find((child) => child.id === activeChildId);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <>
       {/* Header */}
-      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-white/70 bg-white/90 px-6 py-4 shadow-sm backdrop-blur-sm">
+      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-white/70 bg-white/90 px-4 py-3 shadow-sm backdrop-blur-sm sm:px-6">
         <div className="flex items-center gap-2.5">
           <span className="text-xl lg:hidden">📱</span>
           <div>
@@ -187,12 +225,12 @@ export default function ScreenEnergyPage() {
 
       {/* Body */}
       <motion.main
-        className="flex-1 overflow-y-auto flex flex-col items-center"
+        className="flex flex-1 flex-col items-center overflow-y-auto"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.3 }}
       >
-        <div className="w-full max-w-[1400px] space-y-6 px-6 py-6 lg:px-10 lg:py-8">
+        <div className="w-full max-w-2xl space-y-3 px-4 py-4 sm:px-6">
 
           {/* Feedback banner */}
           <AnimatePresence>
@@ -202,115 +240,132 @@ export default function ScreenEnergyPage() {
                 initial={{ opacity: 0, y: -6, scale: 0.98 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -6 }}
-                className={`rounded-2xl border px-5 py-3 text-sm font-bold shadow-sm ${feedbackClass[feedback.tone]}`}
+                className={`rounded-2xl border px-4 py-2.5 text-sm font-bold shadow-sm ${feedbackClass[feedback.tone]}`}
               >
                 {feedback.message}
               </motion.div>
             )}
           </AnimatePresence>
 
-          {/* Explainer */}
-          <div className="rounded-2xl border border-blue-100 bg-blue-50 px-5 py-4">
-            <p className="text-sm font-semibold text-blue-800">
-              📱 <strong>Screen Energy</strong> is an uncapped weekend time bank.{' '}
-              <strong>1 Energy = 10 minutes</strong> of screen time. Reset each child at the
-              start of a new week.
-            </p>
-          </div>
-
-          {/* Per-child energy cards */}
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-            {childrenData.map((child) => (
-              <div
+          <div className="flex gap-1.5 rounded-2xl bg-slate-100 p-1.5">
+            {mockChildren.map((child) => (
+              <button
                 key={child.id}
-                className={`${cardStyle} bg-blue-50/40 transition-all duration-300 ${getPanelClass(child.id)}`}
+                type="button"
+                onClick={() => setActiveChildId(child.id)}
+                className={`flex-1 rounded-xl py-2.5 text-sm font-extrabold transition-all ${
+                  activeChildId === child.id
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
               >
-                <div className="border-b border-slate-100 px-6 py-4">
-                  <h3 className="text-base font-extrabold text-slate-900">
-                    {child.name} — Screen Energy
-                  </h3>
-                  <p className="mt-0.5 text-xs text-slate-400">
-                    1 Energy = 10 minutes of screen time
-                  </p>
-                </div>
-                <div className="px-6 py-5">
-                  <div className="mb-4 flex items-end gap-3">
-                    <span
-                      className={`text-5xl font-extrabold tabular-nums text-blue-700 transition-all duration-300 ${getStatClass(child.id, 'screenEnergy')}`}
-                    >
-                      {child.screenEnergy}
-                    </span>
-                    <span className="mb-1.5 text-sm font-semibold text-slate-500">
-                      {formatWeekendScreenTime(child.screenEnergy)}
-                    </span>
-                  </div>
-
-                  {(screenEnergyRewards.length > 0 || screenEnergyDeductions.length > 0) && (
-                    <div className="mb-4 flex flex-wrap gap-2">
-                      {screenEnergyRewards.map((template) => (
-                        <PillButton
-                          key={template.id}
-                          template={template}
-                          onReward={() => handleReward(child.id, template)}
-                        />
-                      ))}
-                      {screenEnergyDeductions.map((template) => (
-                        <PillButton
-                          key={template.id}
-                          template={template}
-                          onReward={() => handleReward(child.id, template)}
-                        />
-                      ))}
-                    </div>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => resetScreenEnergy(child.id)}
-                    className="w-full rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white transition-all duration-150 hover:-translate-y-0.5 hover:bg-blue-700 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 active:scale-95"
-                  >
-                    Reset for New Week
-                  </button>
-                </div>
-              </div>
+                {child.name}
+              </button>
             ))}
           </div>
 
-          {/* Reset all shortcut */}
-          <div className={cardStyle}>
-            <div className="flex items-center justify-between px-6 py-5">
-              <div>
-                <h3 className="text-base font-extrabold text-slate-900">Reset All Children</h3>
-                <p className="mt-0.5 text-sm text-slate-400">
-                  Start a new week — clear screen energy for all children at once.
+          {activeChild && (
+            <motion.div
+              key={activeChild.id}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
+              className={`${cardStyle} bg-white/90 transition-all duration-300 ${getPanelClass(activeChild.id)}`}
+            >
+              <div className="bg-gradient-to-br from-blue-50 to-sky-50 px-4 py-5 text-center">
+                <p className="text-xs font-black uppercase tracking-wide text-blue-500">
+                  {activeChild.name}&apos;s Screen Energy
+                </p>
+                <div className="mt-1 flex items-center justify-center gap-2">
+                  <span className="text-4xl">⚡</span>
+                  <span
+                    className={`text-6xl font-black tabular-nums leading-none text-blue-700 transition-all duration-300 ${getStatClass(activeChild.id, 'screenEnergy')}`}
+                  >
+                    {activeChild.screenEnergy}
+                  </span>
+                  <span className="self-end pb-1 text-base font-black text-blue-600">Energy</span>
+                </div>
+                <p className="mt-2 text-sm font-bold text-slate-500">
+                  {formatWeekendScreenTime(activeChild.screenEnergy)}
                 </p>
               </div>
+
+              <div className="px-4 py-4">
+                <h2 className="text-xs font-black uppercase tracking-wide text-slate-400">
+                  Daily Actions
+                </h2>
+                <div className="mt-2 grid gap-2">
+                  {screenEnergyRewards.map((template) => (
+                    <EnergyActionButton
+                      key={template.id}
+                      template={template}
+                      onReward={() => handleReward(activeChild.id, template)}
+                    />
+                  ))}
+                  {screenEnergyDeductions.map((template) => (
+                    <EnergyActionButton
+                      key={template.id}
+                      template={template}
+                      onReward={() => handleReward(activeChild.id, template)}
+                    />
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          <section className="rounded-2xl border border-slate-100 bg-white/80 px-4 py-3 shadow-sm">
+            <div>
+              <h2 className="text-xs font-black uppercase tracking-wide text-slate-400">
+                Weekly Maintenance
+              </h2>
+              <p className="mt-0.5 text-xs font-semibold text-slate-400">
+                Use these only when starting a new week.
+              </p>
+            </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => activeChild && resetScreenEnergy(activeChild.id)}
+                disabled={!activeChild}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-600 transition hover:bg-slate-50 active:scale-95 disabled:opacity-50"
+              >
+                Reset {activeChild?.name ?? 'Child'} for New Week
+              </button>
               <button
                 type="button"
                 onClick={() => {
                   mockChildren.forEach((child) => resetScreenEnergy(child.id));
                 }}
-                className="shrink-0 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white transition-all hover:-translate-y-0.5 hover:bg-blue-700 hover:shadow-md active:scale-95"
+                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-bold text-slate-600 transition hover:bg-slate-100 active:scale-95"
               >
                 🔄 Reset All
               </button>
             </div>
-          </div>
+          </section>
 
-          {/* How Screen Energy works */}
-          <div className="rounded-2xl border border-sky-100 bg-sky-50/60 px-6 py-5">
-            <h3 className="text-sm font-extrabold text-sky-900">How Screen Energy Works</h3>
-            <div className="mt-3 grid gap-3 text-sm text-sky-700 sm:grid-cols-3">
-              <p className="rounded-xl bg-white/70 px-4 py-3">
-                📱 <strong>1 Energy = 10 minutes</strong> of weekend screen time.
-              </p>
-              <p className="rounded-xl bg-white/70 px-4 py-3">
-                ♾️ Energy is <strong>uncapped</strong> and accumulates throughout the week.
-              </p>
-              <p className="rounded-xl bg-white/70 px-4 py-3">
-                🔄 Reset each child at the <strong>start of every new week</strong>.
-              </p>
-            </div>
+          <div className="rounded-2xl border border-sky-100 bg-sky-50/60">
+            <button
+              type="button"
+              onClick={() => setIsHelpExpanded((current) => !current)}
+              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-extrabold text-sky-900 transition hover:bg-sky-50 active:scale-[0.99]"
+              aria-expanded={isHelpExpanded}
+            >
+              <span>{isHelpExpanded ? '▼' : '▶'} How Screen Energy Works</span>
+            </button>
+            {isHelpExpanded && (
+              <div className="grid gap-2 border-t border-sky-100 px-4 py-3 text-sm text-sky-700 sm:grid-cols-3">
+                <p className="rounded-xl bg-white/70 px-3 py-2">
+                  📱 <strong>1 Energy = 10 minutes</strong> of weekend screen time.
+                </p>
+                <p className="rounded-xl bg-white/70 px-3 py-2">
+                  ♾️ Energy is <strong>uncapped</strong> and accumulates throughout the week.
+                </p>
+                <p className="rounded-xl bg-white/70 px-3 py-2">
+                  🔄 Reset each child at the <strong>start of every new week</strong>.
+                </p>
+              </div>
+            )}
           </div>
 
         </div>

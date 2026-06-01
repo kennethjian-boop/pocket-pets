@@ -33,6 +33,7 @@ export type BossBattleState = {
   weekLabel: string;
   isDefeated: boolean;
   rewardClaimed: boolean;
+  victoryReward?: BossRewardConfig;
   rewardsByChild?: Record<string, BossRewardConfig>;
   attacks: BossAttack[];
 };
@@ -53,6 +54,8 @@ export const BOSS_REWARD: BossRewardConfig = {
   hearts: 1,
   screenEnergy: 1,
 };
+
+export const FAMILY_BOSS_REWARD_KEY = '__family__';
 
 export const BOSS_ROSTER: BossRosterItem[] = [
   {
@@ -144,16 +147,61 @@ export function createDefaultBossBattleState(
     weekLabel: getWeekLabel(),
     isDefeated: false,
     rewardClaimed: false,
+    victoryReward: BOSS_REWARD,
     rewardsByChild: {},
     attacks: [],
   });
 }
 
-export function getBossRewardForChild(
-  state: Pick<BossBattleState, 'rewardsByChild'>,
-  childId: string
+function normalizeBossReward(reward: BossRewardConfig): BossRewardConfig {
+  return {
+    stars: Math.max(0, Math.floor(reward.stars)),
+    hearts: Math.max(0, Math.floor(reward.hearts)),
+    screenEnergy: Math.max(0, Math.floor(reward.screenEnergy)),
+  };
+}
+
+export function getSharedBossReward(
+  state: Pick<BossBattleState, 'victoryReward' | 'rewardsByChild'>
 ): BossRewardConfig {
-  return state.rewardsByChild?.[childId] ?? BOSS_REWARD;
+  if (state.victoryReward) return normalizeBossReward(state.victoryReward);
+
+  const legacyRewards = Object.entries(state.rewardsByChild ?? {})
+    .filter(([childId]) => childId !== FAMILY_BOSS_REWARD_KEY)
+    .map(([, reward]) => normalizeBossReward(reward));
+
+  if (legacyRewards.length === 0) return BOSS_REWARD;
+
+  return legacyRewards.reduce((shared, reward) => ({
+    stars: Math.max(shared.stars, reward.stars),
+    hearts: Math.max(shared.hearts, reward.hearts),
+    screenEnergy: Math.max(shared.screenEnergy, reward.screenEnergy),
+  }));
+}
+
+export function migrateSharedBossReward(state: BossBattleState): BossBattleState {
+  return {
+    ...state,
+    victoryReward: getSharedBossReward(state),
+  };
+}
+
+export function getBossRewardForChild(
+  state: Pick<BossBattleState, 'victoryReward' | 'rewardsByChild'>,
+  _childId: string
+): BossRewardConfig {
+  void _childId;
+  return getSharedBossReward(state);
+}
+
+export function setSharedBossReward(
+  state: BossBattleState,
+  reward: BossRewardConfig
+): BossBattleState {
+  return {
+    ...state,
+    victoryReward: normalizeBossReward(reward),
+  };
 }
 
 export function setBossRewardForChild(
@@ -165,11 +213,7 @@ export function setBossRewardForChild(
     ...state,
     rewardsByChild: {
       ...state.rewardsByChild,
-      [childId]: {
-        stars: Math.max(0, Math.floor(reward.stars)),
-        hearts: Math.max(0, Math.floor(reward.hearts)),
-        screenEnergy: Math.max(0, Math.floor(reward.screenEnergy)),
-      },
+      [childId]: normalizeBossReward(reward),
     },
   };
 }
@@ -207,14 +251,15 @@ export function readBossBattleState(): BossBattleState {
     if (!stored) return createDefaultBossBattleState();
 
     const parsed = JSON.parse(stored) as Partial<BossBattleState>;
-    return recalculateBossBattleState({
+    return migrateSharedBossReward(recalculateBossBattleState({
       ...createDefaultBossBattleState(),
       ...parsed,
       attacks: Array.isArray(parsed.attacks) ? parsed.attacks : [],
       maxHp: typeof parsed.maxHp === 'number' ? parsed.maxHp : 100,
       rewardClaimed: parsed.rewardClaimed ?? false,
+      victoryReward: parsed.victoryReward,
       rewardsByChild: parsed.rewardsByChild ?? {},
-    });
+    }));
   } catch (error) {
     console.error('Failed to load boss battle state', error);
     return createDefaultBossBattleState();
@@ -225,12 +270,12 @@ export function writeBossBattleStateLocal(state: BossBattleState) {
   if (typeof window === 'undefined') return;
   window.localStorage.setItem(
     BOSS_BATTLE_STORAGE_KEY,
-    JSON.stringify(recalculateBossBattleState(state))
+    JSON.stringify(migrateSharedBossReward(recalculateBossBattleState(state)))
   );
 }
 
 export function writeBossBattleState(state: BossBattleState) {
-  const nextState = recalculateBossBattleState(state);
+  const nextState = migrateSharedBossReward(recalculateBossBattleState(state));
   writeBossBattleStateLocal(nextState);
   void upsertBossState(nextState);
 }

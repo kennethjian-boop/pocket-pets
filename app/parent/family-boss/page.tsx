@@ -8,16 +8,16 @@ import { mockChildren } from '@/lib/mock-data';
 import { saveChildDashboardState } from '@/lib/mission-state';
 import {
   BOSS_DAMAGE_OPTIONS,
-  BOSS_REWARD,
   BossBattleState,
   BossRewardConfig,
   addBossAttack,
   claimBossRewardsForChildren,
   createDefaultBossBattleState,
   getBossBattleStorageKey,
-  getBossRewardForChild,
+  getSharedBossReward,
+  migrateSharedBossReward,
   readBossBattleState,
-  setBossRewardForChild,
+  setSharedBossReward,
   startNextBossBattle,
   writeBossBattleState,
 } from '@/lib/boss-battle';
@@ -27,11 +27,9 @@ import {
   cardStyle,
   feedbackClass,
   panelHighlightClass,
-  statPulseClass,
   DashboardStateByChild,
   FeedbackState,
   FeedbackTone,
-  MockChild,
   PanelHighlight,
   StatKey,
   StatPulse,
@@ -63,14 +61,8 @@ const rewardMeta: Record<
   },
 };
 
-function applyRewardDefaults(state: BossBattleState, children: MockChild[]) {
-  return children.reduce(
-    (nextState, child) =>
-      nextState.rewardsByChild?.[child.id]
-        ? nextState
-        : setBossRewardForChild(nextState, child.id, BOSS_REWARD),
-    state
-  );
+function applySharedRewardMigration(state: BossBattleState) {
+  return migrateSharedBossReward(state);
 }
 
 function clampRewardValue(value: number) {
@@ -144,7 +136,7 @@ export default function FamilyBossPage() {
     () => buildDashboardStates(false)
   );
   const [bossState, setBossState] = useState<BossBattleState>(() =>
-    applyRewardDefaults(createDefaultBossBattleState(), mockChildren)
+    applySharedRewardMigration(createDefaultBossBattleState())
   );
   const [bonusChildId, setBonusChildId] = useState(mockChildren[0]?.id ?? '');
   const [bonusTitle, setBonusTitle] = useState('');
@@ -152,7 +144,7 @@ export default function FamilyBossPage() {
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const [lastAction, setLastAction] = useState('');
   const [panelHighlight, setPanelHighlight] = useState<PanelHighlight | null>(null);
-  const [statPulse, setStatPulse] = useState<StatPulse[]>([]);
+  const [, setStatPulse] = useState<StatPulse[]>([]);
   const [bossPulse, setBossPulse] = useState(false);
   const [bossDamageLabel, setBossDamageLabel] = useState('');
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -163,7 +155,7 @@ export default function FamilyBossPage() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void buildDashboardStatesFromSupabase().then((hydrated) => {
-      const storedBoss = applyRewardDefaults(readBossBattleState(), mockChildren);
+      const storedBoss = applySharedRewardMigration(readBossBattleState());
       setDashboardStates(hydrated);
       setBossState(storedBoss);
       setChildrenData((cur) =>
@@ -179,7 +171,7 @@ export default function FamilyBossPage() {
 
   useEffect(() => {
     const syncBossState = () =>
-      setBossState(applyRewardDefaults(readBossBattleState(), mockChildren));
+      setBossState(applySharedRewardMigration(readBossBattleState()));
     const handleStorage = (e: StorageEvent) => {
       if (e.key === getBossBattleStorageKey()) syncBossState();
     };
@@ -242,11 +234,6 @@ export default function FamilyBossPage() {
   const getPanelClass = (childId: string) =>
     panelHighlight?.childId === childId ? panelHighlightClass[panelHighlight.tone] : '';
 
-  const getStatClass = (childId: string, stat: StatKey) =>
-    statPulse.some((item) => item.childId === childId && item.stat === stat)
-      ? statPulseClass[stat]
-      : '';
-
   const handleAddBonusAttack = () => {
     const child = childrenData.find((c) => c.id === bonusChildId);
     const title = bonusTitle.trim();
@@ -263,7 +250,7 @@ export default function FamilyBossPage() {
       damage: bonusDamage,
     });
     writeBossBattleState(nextBossState);
-    setBossState(applyRewardDefaults(nextBossState, childrenData));
+    setBossState(applySharedRewardMigration(nextBossState));
     setBonusTitle('');
     showFeedback(`${child.name} launched a ${bonusDamage} damage bonus attack.`, 'boss');
     highlightChildPanel(child.id, 'boss');
@@ -271,21 +258,20 @@ export default function FamilyBossPage() {
   };
 
   const handleRewardChange = (
-    childId: string,
     rewardKey: RewardKey,
     nextValue: number
   ) => {
-    const currentState = applyRewardDefaults(readBossBattleState(), childrenData);
+    const currentState = applySharedRewardMigration(readBossBattleState());
     if (currentState.rewardClaimed) {
       showFeedback('Rewards are locked after claiming. Start the next boss to edit again.', 'info');
       return;
     }
-    const currentReward = getBossRewardForChild(currentState, childId);
+    const currentReward = getSharedBossReward(currentState);
     const nextReward = {
       ...currentReward,
       [rewardKey]: clampRewardValue(nextValue),
     };
-    const nextState = setBossRewardForChild(currentState, childId, nextReward);
+    const nextState = setSharedBossReward(currentState, nextReward);
     writeBossBattleState(nextState);
     setBossState(nextState);
   };
@@ -295,7 +281,7 @@ export default function FamilyBossPage() {
       const nextState = saveChildDashboardState(child.id, child, updates);
       setDashboardStates((cur) => ({ ...cur, [child.id]: nextState }));
     });
-    setBossState(applyRewardDefaults(result.state, childrenData));
+    setBossState(applySharedRewardMigration(result.state));
     setChildrenData(result.children);
     if (result.state.rewardClaimed) {
       showFeedback('Victory rewards claimed!', 'success');
@@ -311,7 +297,7 @@ export default function FamilyBossPage() {
   const handleStartNextBossBattle = () => {
     const currentBossState = readBossBattleState();
     if (!currentBossState.isDefeated || !currentBossState.rewardClaimed) return;
-    const nextState = applyRewardDefaults(startNextBossBattle(currentBossState), childrenData);
+    const nextState = applySharedRewardMigration(startNextBossBattle(currentBossState));
     writeBossBattleState(nextState);
     setBossState(nextState);
     showFeedback(`Started next boss battle: ${nextState.bossName}!`, 'boss');
@@ -660,7 +646,7 @@ export default function FamilyBossPage() {
                   <div>
                     <h2 className="text-xl font-black text-slate-900">🎁 Victory Rewards</h2>
                     <p className="mt-1 text-sm font-semibold text-slate-500">
-                      Configure Stars, Hearts, and Energy independently for each child.
+                      Applied to all children when the boss is defeated.
                     </p>
                   </div>
                   {rewardLocked && (
@@ -672,43 +658,42 @@ export default function FamilyBossPage() {
               </div>
 
               <div className="space-y-4 p-5">
-                {childrenData.map((child) => {
-                  const reward = getBossRewardForChild(bossState, child.id);
-                  return (
-                    <article
-                      key={child.id}
-                      className={`rounded-3xl border border-slate-100 bg-slate-50 p-4 ${getPanelClass(child.id)}`}
-                    >
-                      <div className="mb-3 flex items-center justify-between gap-3">
-                        <h3 className="text-lg font-black text-slate-900">{child.name} Rewards</h3>
-                        <div className="flex gap-2 text-xs font-black">
-                          <span className={`rounded-full bg-white px-2 py-1 text-amber-700 ${getStatClass(child.id, 'stars')}`}>
-                            ⭐ {child.stars}
-                          </span>
-                          <span className={`rounded-full bg-white px-2 py-1 text-pink-700 ${getStatClass(child.id, 'hearts')}`}>
-                            ❤️ {child.hearts}
-                          </span>
-                          <span className={`rounded-full bg-white px-2 py-1 text-blue-700 ${getStatClass(child.id, 'screenEnergy')}`}>
-                            ⚡ {child.screenEnergy}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="grid gap-3 md:grid-cols-3">
-                        {(['stars', 'hearts', 'screenEnergy'] as RewardKey[]).map((rewardKey) => (
-                          <RewardStepper
-                            key={rewardKey}
-                            rewardKey={rewardKey}
-                            value={reward[rewardKey]}
-                            disabled={rewardLocked}
-                            onChange={(nextValue) =>
-                              handleRewardChange(child.id, rewardKey, nextValue)
-                            }
-                          />
-                        ))}
-                      </div>
-                    </article>
-                  );
-                })}
+                <article className="rounded-3xl border border-slate-100 bg-slate-50 p-4">
+                  <div className="mb-3">
+                    <h3 className="text-lg font-black text-slate-900">Family Victory Reward</h3>
+                    <p className="mt-1 text-sm font-semibold text-slate-500">
+                      Defeat the boss and every eligible child receives the same reward.
+                    </p>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    {(['stars', 'hearts', 'screenEnergy'] as RewardKey[]).map((rewardKey) => (
+                      <RewardStepper
+                        key={rewardKey}
+                        rewardKey={rewardKey}
+                        value={getSharedBossReward(bossState)[rewardKey]}
+                        disabled={rewardLocked}
+                        onChange={(nextValue) =>
+                          handleRewardChange(rewardKey, nextValue)
+                        }
+                      />
+                    ))}
+                  </div>
+                  <div className="mt-4 rounded-2xl bg-white px-3 py-2.5">
+                    <p className="text-xs font-black uppercase tracking-wide text-slate-400">
+                      Applies to
+                    </p>
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      {childrenData.map((child) => (
+                        <span
+                          key={child.id}
+                          className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-black text-emerald-700"
+                        >
+                          ✓ {child.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </article>
 
                 <div className="grid gap-2 sm:grid-cols-2">
                   <button
