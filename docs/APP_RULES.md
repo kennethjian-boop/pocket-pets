@@ -125,7 +125,7 @@ Care actions should be fun pet interactions, not reward farming systems.
 
 Feed / Pat / Clean must not:
 
-- Give stars
+- Give stars except when a care action crosses a mood reward threshold
 - Give Screen Energy
 - Damage the boss
 - Increase Secret Egg progress
@@ -134,7 +134,9 @@ Feed / Pat / Clean must not:
 
 Care actions may:
 
-- Slightly improve pet comfort
+- Improve pet comfort by 10
+- Award 1 star when mood crosses into 80 or more
+- Award 3 stars when mood crosses into 100
 - Trigger animations
 - Trigger speech bubbles
 - Trigger hearts, sparkles, bubbles, or small visual effects
@@ -630,4 +632,4 @@ Real-life goal completed
 -> Child earns progress  
 -> Pet / shop / boss system responds
 
-Feed / Pat / Clean and future mini-games are for emotional connection and celebration only.
+Feed / Pat / Clean are emotional interactions with limited mood-threshold star rewards.

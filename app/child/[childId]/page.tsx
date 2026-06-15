@@ -17,6 +17,7 @@ import {
   clearPoopEvents,
   clearEggMessage,
   careActionConfig,
+  clampStars,
   getPoopPenaltyInfo,
   getDailyGoalsStorageKey,
   getDefaultDailyActionCounts,
@@ -549,7 +550,18 @@ export default function ChildHome() {
     careWriteInFlightRef.current = true;
     setCareWriteInFlight(type);
     const moodUpdatedAtNow = new Date().toISOString();
-    const nextMood = boostMoodPercent(displayedComfort, config.comfortBoost);
+    const currentDashboardState = mergeWithDefaultChildState(
+      child,
+      readChildDashboardState(childId)
+    );
+    const nextMood = boostMoodPercent(currentDashboardState.comfort, config.comfortBoost);
+    const starReward =
+      currentDashboardState.comfort < 100 && nextMood >= 100
+        ? 3
+        : currentDashboardState.comfort < 80 && nextMood >= 80
+          ? 1
+          : 0;
+    const nextStars = clampStars(currentDashboardState.stars + starReward);
     const nextPoopEvents = type === 'clean' ? clearPoopEvents(poopEvents) : poopEvents;
 
     setDailyActionCounts((current) => ({
@@ -563,9 +575,16 @@ export default function ChildHome() {
     if (type === 'clean') {
       setPoopEvents(nextPoopEvents);
     }
+    setStars(nextStars);
     setComfort(nextMood);
     setMoodUpdatedAt(moodUpdatedAtNow);
     setComfortPulseKey((current) => current + 1);
+    saveChildDashboardState(childId, child, {
+      stars: nextStars,
+      comfort: nextMood,
+      moodUpdatedAt: moodUpdatedAtNow,
+      poopEvents: nextPoopEvents,
+    });
 
     try {
       const syncedState = await syncChildMood(childId, child, nextMood, moodUpdatedAtNow);
@@ -594,12 +613,14 @@ export default function ChildHome() {
       setCareWriteInFlight(null);
     }
 
-    showFeedback(config.successMessage.replace('{petName}', activePetName));
+    const rewardMessage =
+      starReward > 0 ? ` You earned ${starReward} star${starReward === 1 ? '' : 's'}!` : '';
+    showFeedback(`${config.successMessage.replace('{petName}', activePetName)}${rewardMessage}`);
     triggerCareReaction(
       type,
       false,
       type === 'clean' && hasPoop ? 'All tidy again!' : reactionSpeech[type],
-      `+${config.comfortBoost} Mood`
+      `+${config.comfortBoost} Mood${starReward > 0 ? ` · +${starReward} Star${starReward === 1 ? '' : 's'}` : ''}`
     );
   };
 

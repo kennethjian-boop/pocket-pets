@@ -159,11 +159,13 @@ Current daily limits:
 
 Care actions must not affect:
 
-- Stars
 - Screen Energy
 - Boss damage
 - Egg progress
 - Goal completion
+
+Each successful Feed / Pat / Clean action adds 10 mood. Crossing into mood 80 or more
+awards 1 star, while crossing into mood 100 awards 3 stars.
 
 Care actions may affect:
 
@@ -560,4 +562,4 @@ Real-life goal completed
 -> Child earns progress  
 -> Pet / shop / boss system responds
 
-Feed / Pat / Clean and future mini-games are for emotional connection only.
+Feed / Pat / Clean are emotional interactions with limited mood-threshold star rewards.
