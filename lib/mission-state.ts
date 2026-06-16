@@ -174,6 +174,10 @@ export interface SecretEggState {
   unlockedPetId: PetRosterItem['id'] | null;
 }
 
+interface SaveChildDashboardOptions {
+  allowEggProgressRegression?: boolean;
+}
+
 export { SKIN_ROSTER, SKIN_COST, skinsByPet, getSkinById } from '@/lib/pet-skins';
 
 export const goalBank: GoalTemplate[] = [
@@ -1469,10 +1473,13 @@ export function mergeWithDefaultChildState(
 export function saveChildDashboardState(
   childId: string,
   child: Child,
-  updates: Partial<ChildDashboardState>
+  updates: Partial<ChildDashboardState>,
+  options: SaveChildDashboardOptions = {}
 ) {
   const current = mergeWithDefaultChildState(child, readChildDashboardState(childId));
-  const nextUnlockedPets = updates.unlockedPets ?? current.unlockedPets;
+  const nextUnlockedPets = updates.unlockedPets
+    ? Array.from(new Set([...current.unlockedPets, ...updates.unlockedPets]))
+    : current.unlockedPets;
   const requestedActivePet = updates.activePetId ?? updates.activePetType ?? current.activePetId;
   const activePetId = nextUnlockedPets.includes(requestedActivePet)
     ? requestedActivePet
@@ -1484,7 +1491,7 @@ export function saveChildDashboardState(
     unlockedPets: nextUnlockedPets,
     activePetId,
     activePetType: activePetId,
-    activeEgg: updates.activeEgg === undefined ? current.activeEgg : updates.activeEgg,
+    activeEgg: resolveActiveEggUpdate(current.activeEgg, updates.activeEgg, options),
     eggMessage: updates.eggMessage === undefined ? current.eggMessage : updates.eggMessage,
     ownedSkins: updates.ownedSkins ?? current.ownedSkins,
     activeSkins: updates.activeSkins ?? current.activeSkins,
@@ -1502,6 +1509,21 @@ export function saveChildDashboardState(
   writeChildDashboardState(childId, nextState);
   mirrorChildDashboardStateToSupabase(childId, child, nextState);
   return nextState;
+}
+
+function resolveActiveEggUpdate(
+  currentEgg: SecretEggState | null,
+  updatedEgg: SecretEggState | null | undefined,
+  options: SaveChildDashboardOptions
+) {
+  if (updatedEgg === undefined) return currentEgg;
+  if (!updatedEgg) return null;
+  if (!currentEgg || currentEgg.id !== updatedEgg.id) return updatedEgg;
+  if (options.allowEggProgressRegression) return updatedEgg;
+  if (updatedEgg.hatched && !currentEgg.hatched) return updatedEgg;
+  if (currentEgg.hatched && !updatedEgg.hatched) return currentEgg;
+  if (updatedEgg.progress < currentEgg.progress) return currentEgg;
+  return updatedEgg;
 }
 
 export function setMissionCompletion(
@@ -1625,10 +1647,15 @@ export function updateSecretEggProgressForGoal(
   const contributedGoalIds = completed
     ? [...egg.contributedGoalIds, goalContributionId]
     : egg.contributedGoalIds.filter((goalId) => goalId !== goalContributionId);
-  const progress = Math.max(
-    0,
-    Math.min(egg.requiredGoals, egg.progress + (completed ? 1 : -1))
-  );
+  const progress = completed
+    ? Math.max(
+        0,
+        Math.min(egg.requiredGoals, Math.max(egg.progress + 1, contributedGoalIds.length))
+      )
+    : Math.max(
+        0,
+        Math.min(egg.requiredGoals, Math.min(egg.progress - 1, contributedGoalIds.length))
+      );
 
   if (progress < egg.requiredGoals) {
     return saveChildDashboardState(childId, child, {
@@ -1637,7 +1664,7 @@ export function updateSecretEggProgressForGoal(
         progress,
         contributedGoalIds,
       },
-    });
+    }, { allowEggProgressRegression: !completed });
   }
 
   const unlockedPet = getRandomLockedPet(current.unlockedPets);

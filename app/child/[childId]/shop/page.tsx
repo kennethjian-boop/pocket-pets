@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
@@ -22,6 +22,19 @@ import {
 } from '@/lib/mission-state';
 import { skinsByPet, getSkinById, SKIN_COST } from '@/lib/pet-skins';
 
+function getShopDashboardKey(state: ReturnType<typeof mergeWithDefaultChildState>) {
+  return JSON.stringify({
+    stars: state.stars,
+    screenEnergy: state.screenEnergy,
+    ownedSkins: state.ownedSkins,
+    activeSkins: state.activeSkins,
+    unlockedPets: state.unlockedPets,
+    activePetId: state.activePetId,
+    activeEgg: state.activeEgg,
+    eggMessage: state.eggMessage,
+  });
+}
+
 export default function RewardShop() {
   const params = useParams();
   const router = useRouter();
@@ -40,6 +53,7 @@ export default function RewardShop() {
   const [activeEgg, setActiveEgg] = useState<SecretEggState | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [dashboardLoaded, setDashboardLoaded] = useState(false);
+  const lastSyncedDashboardKeyRef = useRef('');
 
   useEffect(() => {
     if (!child) return;
@@ -64,8 +78,10 @@ export default function RewardShop() {
 
     const hydrateTimer = window.setTimeout(() => {
       const stored = mergeWithDefaultChildState(child, readChildDashboardState(child.id));
+      lastSyncedDashboardKeyRef.current = getShopDashboardKey(stored);
       applyDashboardState(stored, false);
       void hydrateChildDashboardStateFromSupabase(child.id, child).then((hydrated) => {
+        lastSyncedDashboardKeyRef.current = getShopDashboardKey(hydrated);
         applyDashboardState(hydrated, true);
         const syncMeta = readChildSupabaseSyncMeta(child.id);
         if (syncMeta.lastSyncSource === 'local-fallback') {
@@ -76,6 +92,43 @@ export default function RewardShop() {
 
     return () => window.clearTimeout(hydrateTimer);
   }, [child]);
+
+  useEffect(() => {
+    if (!child || !dashboardLoaded) return;
+
+    const syncFromStorage = () => {
+      const stored = mergeWithDefaultChildState(child, readChildDashboardState(child.id));
+      const nextKey = getShopDashboardKey(stored);
+      if (nextKey === lastSyncedDashboardKeyRef.current) return;
+
+      lastSyncedDashboardKeyRef.current = nextKey;
+      setStars(stored.stars);
+      setScreenEnergy(stored.screenEnergy);
+      setOwnedSkins(stored.ownedSkins);
+      setActiveSkins(stored.activeSkins);
+      setUnlockedPets(stored.unlockedPets);
+      setActivePetType(stored.activePetId);
+      setActiveEgg(stored.activeEgg);
+      if (stored.eggMessage) {
+        setMessage(stored.eggMessage);
+        window.setTimeout(() => setMessage(null), 2000);
+      }
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === `child-dashboard-state-${child.id}`) {
+        syncFromStorage();
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+    const refreshTimer = window.setInterval(syncFromStorage, 1000);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.clearInterval(refreshTimer);
+    };
+  }, [child, dashboardLoaded]);
 
   useEffect(() => {
     if (!child || searchParams.get('setEggProgress') !== '9') return;
