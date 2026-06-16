@@ -7,6 +7,7 @@ import { mockChildren } from '@/lib/mock-data';
 import {
   dailyMissionTemplates,
   getDailyGoalsForChild,
+  getTodayKey,
   goalBank,
   mergeWithDefaultChildState,
   randomizeAuthoritativeDailyGoalsForChild,
@@ -152,6 +153,24 @@ export default function GoalsPage() {
       ? statPulseClass[stat]
       : '';
 
+  const getEggContributionId = (
+    child: MockChild,
+    sourceId: string,
+    completed: boolean
+  ) => {
+    const datedSourceId = `${sourceId}:${getTodayKey()}`;
+    if (completed) return datedSourceId;
+
+    const activeEgg = mergeWithDefaultChildState(
+      child,
+      readChildDashboardState(child.id)
+    ).activeEgg;
+    return activeEgg?.contributedGoalIds.includes(sourceId) &&
+      !activeEgg.contributedGoalIds.includes(datedSourceId)
+      ? sourceId
+      : datedSourceId;
+  };
+
   // ── Goal completion reset helper ───────────────────────────────────────────
 
   const resetGoalCompletionForChild = (child: MockChild) => {
@@ -163,16 +182,17 @@ export default function GoalsPage() {
 
     currentGoals.forEach((goal) => {
       if (!currentState.completedMissions[goal.id]) return;
-      setMissionCompletion(child.id, child, goal, false);
+      const sourceId = getMissionAttackSourceId(child.id, goal.id);
+      setMissionCompletion(child.id, child, goal, false, { mirrorToSupabase: false });
       updateSecretEggProgressForGoal(
         child.id,
         child,
-        getMissionAttackSourceId(child.id, goal.id),
+        getEggContributionId(child, sourceId, false),
         false
       );
       nextBossState = removeBossAttackBySourceId(
         nextBossState,
-        getMissionAttackSourceId(child.id, goal.id)
+        sourceId
       );
     });
 
@@ -225,9 +245,15 @@ export default function GoalsPage() {
     setChildrenData((cur) =>
       cur.map((child) => {
         if (child.id !== childId) return child;
-        setMissionCompletion(child.id, child, mission, completed);
         const sourceId = getMissionAttackSourceId(child.id, mission.id);
-        const eggState = updateSecretEggProgressForGoal(child.id, child, sourceId, completed);
+        setMissionCompletion(child.id, child, mission, completed, { mirrorToSupabase: false });
+        const eggContributionId = getEggContributionId(child, sourceId, completed);
+        const eggState = updateSecretEggProgressForGoal(
+          child.id,
+          child,
+          eggContributionId,
+          completed
+        );
         const currentBossState = readBossBattleState();
         const nextBossState = completed
           ? addBossAttack(currentBossState, {

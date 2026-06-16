@@ -1508,7 +1508,8 @@ export function setMissionCompletion(
   childId: string,
   child: Child,
   mission: DailyMission,
-  completed: boolean
+  completed: boolean,
+  options: { mirrorToSupabase?: boolean } = {}
 ) {
   const current = mergeWithDefaultChildState(child, readChildDashboardState(childId));
   const wasCompleted = current.completedMissions[mission.id] ?? false;
@@ -1531,7 +1532,9 @@ export function setMissionCompletion(
   const nextState = { ...current, completedMissions, stars, comfort, moodUpdatedAt };
   writeChildDashboardState(childId, nextState);
   void updateDailyGoalCompletionForChild(childId, mission.id, completed);
-  mirrorChildDashboardStateToSupabase(childId, child, nextState);
+  if (options.mirrorToSupabase !== false) {
+    mirrorChildDashboardStateToSupabase(childId, child, nextState);
+  }
   return nextState;
 }
 
