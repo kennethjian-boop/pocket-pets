@@ -7,7 +7,6 @@ import { mockChildren } from '@/lib/mock-data';
 import {
   dailyMissionTemplates,
   getDailyGoalsForChild,
-  getTodayKey,
   goalBank,
   mergeWithDefaultChildState,
   randomizeAuthoritativeDailyGoalsForChild,
@@ -15,16 +14,8 @@ import {
   saveChildDashboardState,
   setAuthoritativeDailyGoalsForChild,
   setGoalSetupMode,
-  setMissionCompletion,
-  updateSecretEggProgressForGoal,
 } from '@/lib/mission-state';
-import {
-  addBossAttack,
-  getMissionAttackSourceId,
-  readBossBattleState,
-  removeBossAttackBySourceId,
-  writeBossBattleState,
-} from '@/lib/boss-battle';
+import { verifyDailyGoal } from '@/lib/goal-verification';
 import {
   buildDashboardStates,
   buildDashboardStatesFromSupabase,
@@ -153,24 +144,6 @@ export default function GoalsPage() {
       ? statPulseClass[stat]
       : '';
 
-  const getEggContributionId = (
-    child: MockChild,
-    sourceId: string,
-    completed: boolean
-  ) => {
-    const datedSourceId = `${sourceId}:${getTodayKey()}`;
-    if (completed) return datedSourceId;
-
-    const activeEgg = mergeWithDefaultChildState(
-      child,
-      readChildDashboardState(child.id)
-    ).activeEgg;
-    return activeEgg?.contributedGoalIds.includes(sourceId) &&
-      !activeEgg.contributedGoalIds.includes(datedSourceId)
-      ? sourceId
-      : datedSourceId;
-  };
-
   // ── Goal completion reset helper ───────────────────────────────────────────
 
   const resetGoalCompletionForChild = (child: MockChild) => {
@@ -178,25 +151,12 @@ export default function GoalsPage() {
       dashboardStates[child.id] ??
       mergeWithDefaultChildState(child, readChildDashboardState(child.id));
     const currentGoals = goalsByChild[child.id] ?? dailyMissionTemplates;
-    let nextBossState = readBossBattleState();
 
     currentGoals.forEach((goal) => {
       if (!currentState.completedMissions[goal.id]) return;
-      const sourceId = getMissionAttackSourceId(child.id, goal.id);
-      setMissionCompletion(child.id, child, goal, false, { mirrorToSupabase: false });
-      updateSecretEggProgressForGoal(
-        child.id,
-        child,
-        getEggContributionId(child, sourceId, false),
-        false
-      );
-      nextBossState = removeBossAttackBySourceId(
-        nextBossState,
-        sourceId
-      );
+      verifyDailyGoal(child, goal, false);
     });
 
-    writeBossBattleState(nextBossState);
     const nextState = saveChildDashboardState(child.id, child, { completedMissions: {} });
     setDashboardStates((cur) => ({ ...cur, [child.id]: nextState }));
     setChildrenData((cur) =>
@@ -242,40 +202,22 @@ export default function GoalsPage() {
       }
     }
 
+    if (!affectedChild) return;
+    const { childState } = verifyDailyGoal(affectedChild, mission, completed);
+    setDashboardStates((cur) => ({ ...cur, [childId]: childState }));
     setChildrenData((cur) =>
-      cur.map((child) => {
-        if (child.id !== childId) return child;
-        const sourceId = getMissionAttackSourceId(child.id, mission.id);
-        setMissionCompletion(child.id, child, mission, completed, { mirrorToSupabase: false });
-        const eggContributionId = getEggContributionId(child, sourceId, completed);
-        const eggState = updateSecretEggProgressForGoal(
-          child.id,
-          child,
-          eggContributionId,
-          completed
-        );
-        const currentBossState = readBossBattleState();
-        const nextBossState = completed
-          ? addBossAttack(currentBossState, {
-              childId: child.id,
-              childName: child.name,
-              sourceType: 'mission',
-              sourceId,
-              title: mission.title,
-              damage: bossDamage,
-            })
-          : removeBossAttackBySourceId(currentBossState, sourceId);
-        writeBossBattleState(nextBossState);
-        setDashboardStates((cur) => ({ ...cur, [child.id]: eggState }));
-        if (eggState.eggMessage) showFeedback(eggState.eggMessage, 'success');
-        return {
-          ...child,
-          stars: eggState.stars,
-          hearts: eggState.hearts,
-          screenEnergy: eggState.screenEnergy,
-        };
-      })
+      cur.map((child) =>
+        child.id === childId
+          ? {
+              ...child,
+              stars: childState.stars,
+              hearts: childState.hearts,
+              screenEnergy: childState.screenEnergy,
+            }
+          : child
+      )
     );
+    if (childState.eggMessage) showFeedback(childState.eggMessage, 'success');
   };
 
   // ── Goal randomise ─────────────────────────────────────────────────────────

@@ -1082,8 +1082,30 @@ export async function updateDailyGoalCompletionForChild(
   completed: boolean
 ) {
   const today = getTodayKey();
+  const localGoalsByChild = readDailyGoalsByChild();
+  const localRecord = localGoalsByChild[childId];
+  let localCompletionRecord: DailyGoalsRecord | null = null;
+
+  if (localRecord?.date === today && localRecord.goals.includes(goalId)) {
+    const currentGoalItems = localRecord.goalItems?.length
+      ? enrichDailyGoalInstances(localRecord.goalItems)
+      : goalIdsToDailyGoalInstances(localRecord.goals, localRecord.completed);
+    const nextGoalItems = currentGoalItems.map((goal) =>
+      goal.id === goalId ? { ...goal, completed } : goal
+    );
+    localCompletionRecord = {
+      ...localRecord,
+      goalItems: nextGoalItems,
+      completed: getCompletedMissionsFromDailyGoals(nextGoalItems),
+    };
+    writeDailyGoalsByChild({
+      ...localGoalsByChild,
+      [childId]: localCompletionRecord,
+    });
+  }
+
   const remote = await fetchDailyGoalsForChild(childId, today);
-  if (!remote?.goalIds.includes(goalId)) return null;
+  if (!remote?.goalIds.includes(goalId)) return localCompletionRecord;
 
   const currentGoals =
     remote.goals.length === 3
