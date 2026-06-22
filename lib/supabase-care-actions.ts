@@ -2,8 +2,13 @@
 
 import type { Child } from '@/lib/mock-data';
 import {
+  fetchChildState,
+  mergeSupabaseChildState,
+} from '@/lib/supabase-child-state';
+import {
   getDefaultDailyActionCounts,
   getDefaultLastActionTimestamps,
+  getTodayKey,
   mergeWithDefaultChildState,
   normalizePoopEvents,
   readChildDashboardState,
@@ -12,7 +17,7 @@ import {
   type CareActionType,
   type ChildDashboardState,
 } from '@/lib/mission-state';
-import type { CareState } from '@/lib/supabase-care-state';
+import { fetchCareStateForChild, type CareState } from '@/lib/supabase-care-state';
 import { getSupabaseBrowserClient, hasSupabaseBrowserEnv } from '@/lib/supabase-browser';
 
 type CareRpcResult = {
@@ -68,7 +73,7 @@ export async function performCareActionAuthoritatively(
     poopEvents: normalizePoopEvents(result.poop_events),
     patHeartAwarded: result.pat_heart_awarded === true,
   };
-  const childState = {
+  let childState = {
     ...current,
     stars: getNumber(result.stars, current.stars),
     comfort: getNumber(result.mood_percent, current.comfort),
@@ -83,10 +88,48 @@ export async function performCareActionAuthoritatively(
     careResetDate: careState.date,
   };
   writeChildDashboardState(child.id, childState);
+
+  // Reload both committed rows. The RPC result provides immediate state, while
+  // these rows are the cross-device source of truth and refresh the cache.
+  const [remoteChild, remoteCare] = await Promise.all([
+    fetchChildState(child),
+    fetchCareStateForChild(child.id),
+  ]);
+  if (remoteChild) {
+    childState = mergeSupabaseChildState(childState, remoteChild);
+  }
+  if (remoteCare) {
+    const today = getTodayKey();
+    const isCurrentDay = remoteCare.date === today;
+    childState = {
+      ...childState,
+      dailyActionCounts: isCurrentDay
+        ? remoteCare.actionCounts
+        : getDefaultDailyActionCounts(),
+      lastActionTimestamps: isCurrentDay
+        ? remoteCare.lastTimestamps
+        : getDefaultLastActionTimestamps(),
+      poopEvents: remoteCare.poopEvents,
+      patHeartAwarded: isCurrentDay ? remoteCare.patHeartAwarded : false,
+      careResetDate: today,
+    };
+  }
+  writeChildDashboardState(child.id, childState);
+
+  const authoritativeCareState: CareState = remoteCare
+    ? {
+        ...remoteCare,
+        date: childState.careResetDate,
+        actionCounts: childState.dailyActionCounts,
+        lastTimestamps: childState.lastActionTimestamps,
+        patHeartAwarded: childState.patHeartAwarded,
+      }
+    : careState;
+
   const syncedAt = new Date().toISOString();
   writeChildSupabaseSyncMeta(child.id, {
     migratedToSupabase: true,
-    lastRemoteUpdatedAt: syncedAt,
+    lastRemoteUpdatedAt: remoteChild?.updatedAt ?? syncedAt,
     lastLocalWriteAt: syncedAt,
     lastSupabaseWriteAt: syncedAt,
     lastSyncSource: 'supabase',
@@ -95,7 +138,7 @@ export async function performCareActionAuthoritatively(
 
   return {
     childState,
-    careState,
+    careState: authoritativeCareState,
     starReward: Number(result.star_reward ?? 0),
   };
 }

@@ -17,7 +17,6 @@ import {
   clearEggMessage,
   careActionConfig,
   getPoopPenaltyInfo,
-  getDailyGoalsStorageKey,
   getDefaultDailyActionCounts,
   getDefaultLastActionTimestamps,
   getUnclearedPoopEvents,
@@ -241,12 +240,13 @@ export default function ChildHome() {
       setActiveSkins(parsed.activeSkins);
     };
 
-    const syncFromStorage = () => {
+    const applyCachedState = () => {
       applyDashboardState(mergeWithDefaultChildState(child, readChildDashboardState(childId)));
     };
 
-    syncFromStorage();
+    applyCachedState();
 
+    let cancelled = false;
     let capturedGoals: Awaited<ReturnType<typeof resolveAuthoritativeDailyGoalsForChild>> | null = null;
     let capturedCareState: {
       date: string;
@@ -275,12 +275,13 @@ export default function ChildHome() {
         capturedCareState = careState;
       }),
     ]).then(([hydratedState]) => {
+      if (cancelled) return;
       const today = getTodayKey();
       // If Supabase has valid care state for today, overlay it on the hydrated state.
       // Older Supabase care rows can still carry uncleared poop events for penalty sync,
       // but their daily action counts must not carry into a new day.
-      // Writing back to localStorage prevents the 1-second syncFromStorage interval
-      // from re-reading stale care counts from the old local cache.
+      // Write the authoritative merged snapshot back as a display cache for the
+      // next first paint. It is not read again during this mounted page session.
       const syncedPoopEvents = capturedCareState
         ? reconcilePoopEvents(capturedCareState.poopEvents)
         : hydratedState.poopEvents;
@@ -358,21 +359,10 @@ export default function ChildHome() {
       });
     });
 
-    const handleStorage = (event: StorageEvent) => {
-      if (
-        event.key === `child-dashboard-state-${childId}` ||
-        event.key === getDailyGoalsStorageKey()
-      ) {
-        syncFromStorage();
-      }
-    };
-
-    window.addEventListener('storage', handleStorage);
-    const refreshTimer = window.setInterval(syncFromStorage, 1000);
-
+    // localStorage is only the first-paint cache. Re-reading it after Supabase
+    // hydration lets an older cache replace authoritative mood and care counts.
     return () => {
-      window.removeEventListener('storage', handleStorage);
-      window.clearInterval(refreshTimer);
+      cancelled = true;
     };
   }, [child, childId]);
 
