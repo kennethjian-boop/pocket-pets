@@ -45,11 +45,10 @@ const COMMON_ITEMS = [
 ];
 
 function getStarsEarned(score: number) {
-  if (score > 130) return 20;
-  if (score > 100) return 15;
-  if (score > 70) return 10;
-  if (score > 50) return 5;
-  return 0;
+  if (score > 75) return 20;
+  if (score > 50) return 15;
+  if (score > 25) return 10;
+  return 5;
 }
 
 function createItem(id: number): FallingItem {
