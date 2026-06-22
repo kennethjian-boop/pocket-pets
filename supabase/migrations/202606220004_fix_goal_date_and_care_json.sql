@@ -1,3 +1,33 @@
+-- Correct the installed goal RPC when daily_goals.date is a text YYYY-MM-DD key.
+do $$
+declare
+  v_function_oid regprocedure :=
+    'public.verify_daily_goal_transaction(text,text,boolean)'::regprocedure;
+  v_definition text;
+  v_updated_definition text;
+begin
+  select pg_get_functiondef(v_function_oid)
+  into v_definition;
+
+  if position('v_today text :=' in v_definition) = 0 then
+    v_updated_definition := replace(
+      v_definition,
+      'v_today date := (now() at time zone ''Asia/Singapore'')::date;',
+      'v_today text := to_char(now() at time zone ''Asia/Singapore'', ''YYYY-MM-DD'');'
+    );
+
+    if v_updated_definition = v_definition then
+      raise exception 'Could not locate the expected v_today date declaration in function %.',
+        v_function_oid;
+    end if;
+
+    execute v_updated_definition;
+  end if;
+end;
+$$;
+
+-- Return the committed care state directly and normalize legacy poop_events
+-- objects before any array operation.
 create or replace function public.perform_care_action_transaction(
   p_child_id text,
   p_action text
@@ -54,8 +84,6 @@ begin
     end if;
   end if;
 
-  -- Legacy rows may contain {} or an object keyed by event id. Normalize both
-  -- without discarding valid event objects before any array operation.
   v_poop_events := case jsonb_typeof(v_poop_events)
     when 'array' then v_poop_events
     when 'object' then case
@@ -166,3 +194,5 @@ $$;
 revoke all on function public.perform_care_action_transaction(text, text) from public;
 revoke all on function public.perform_care_action_transaction(text, text) from anon;
 grant execute on function public.perform_care_action_transaction(text, text) to authenticated;
+
+notify pgrst, 'reload schema';
