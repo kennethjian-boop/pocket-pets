@@ -177,25 +177,19 @@ function toChildrenUpsert(
   state: Partial<ChildDashboardState>,
   options: ChildDashboardUpsertOptions
 ) {
-  const fallbackPet = getPetByChildId(child.id)?.pet ?? 'bubbo';
-  const equippedPet = normalizePet(state.activePetId ?? state.activePetType, fallbackPet);
-  const activeSkins = normalizeActiveSkins(state.activeSkins);
-
   const payload: Record<string, unknown> = {
     child_id: child.id,
     display_name: child.name,
-    stars: Math.max(0, Math.floor(state.stars ?? child.stars)),
-    hearts: Math.max(0, Math.floor(state.hearts ?? child.hearts)),
-    screen_energy: normalizeScreenEnergy(state.screenEnergy ?? child.screenEnergy),
-    equipped_pet: equippedPet,
-    equipped_skin_by_pet: activeSkins,
-    owned_skins: state.ownedSkins ?? [],
-    mood_percent: clampMoodPercent(state.comfort ?? INITIAL_MOOD_PERCENT),
-    mood_updated_at: state.moodUpdatedAt ?? new Date().toISOString(),
   };
 
+  if (state.stars !== undefined) payload.stars = Math.max(0, Math.floor(state.stars));
+  if (state.hearts !== undefined) payload.hearts = Math.max(0, Math.floor(state.hearts));
+  if (state.screenEnergy !== undefined) {
+    payload.screen_energy = normalizeScreenEnergy(state.screenEnergy);
+  }
+
   // Goal completion, egg progress/hatching, and pet unlocks are owned by the
-  // verification transaction. Generic dashboard snapshots must never replace them.
+  // verification transaction. Generic dashboard updates must never replace them.
   if (options.includeEggPurchase) {
     payload.secret_egg_state = state.activeEgg ?? null;
   }
@@ -365,6 +359,26 @@ export async function updateEquippedSkin(
 
   if (error) {
     console.warn('Unable to update Supabase equipped skin.', error.message);
+    return null;
+  }
+
+  return data ? toSupabaseChildState(data, child) : null;
+}
+
+export async function updateOwnedSkins(child: Child, ownedSkins: SkinId[]) {
+  if (!hasSupabaseBrowserEnv()) return null;
+
+  const normalizedOwnedSkins = normalizeOwnedSkinsArray(ownedSkins);
+  const supabase = getSupabaseBrowserClient();
+  const { data, error } = await supabase
+    .from('children')
+    .update({ owned_skins: normalizedOwnedSkins })
+    .eq('child_id', child.id)
+    .select(SELECT_COLUMNS)
+    .single<ChildrenRow>();
+
+  if (error) {
+    console.warn('Unable to update Supabase owned skins.', error.message);
     return null;
   }
 

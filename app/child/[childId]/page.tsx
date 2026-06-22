@@ -14,10 +14,8 @@ import {
   SecretEggState,
   SkinId,
   PetType,
-  clearPoopEvents,
   clearEggMessage,
   careActionConfig,
-  clampStars,
   getPoopPenaltyInfo,
   getDailyGoalsStorageKey,
   getDefaultDailyActionCounts,
@@ -32,10 +30,10 @@ import {
   resolveAuthoritativeDailyGoalsForChild,
   saveChildDashboardState,
   setActiveSkin,
-  syncChildMood,
   writeChildDashboardState,
 } from '@/lib/mission-state';
-import { fetchCareStateForChild, upsertCareStateForChild } from '@/lib/supabase-care-state';
+import { fetchCareStateForChild } from '@/lib/supabase-care-state';
+import { performCareActionAuthoritatively } from '@/lib/supabase-care-actions';
 import { hasSupabaseBrowserEnv } from '@/lib/supabase-browser';
 
 type SyncDebugInfo = {
@@ -74,7 +72,6 @@ import {
   type PetReaction,
 } from '@/components/pets/PetActionOverlay';
 import {
-  boostMoodPercent,
   countCareActionsToday,
   getDisplayMood,
   petMoodImages,
@@ -177,7 +174,7 @@ export default function ChildHome() {
   const [activeEgg, setActiveEgg] = useState<SecretEggState | null>(null);
   const [eggMessage, setEggMessage] = useState<string | null>(null);
   const [comfort, setComfort] = useState(70);
-  const [moodUpdatedAt, setMoodUpdatedAt] = useState<string | null>(null);
+  const [, setMoodUpdatedAt] = useState<string | null>(null);
   const [missionTemplates, setMissionTemplates] = useState<DailyMission[]>(
     []
   );
@@ -189,11 +186,11 @@ export default function ChildHome() {
     getDefaultLastActionTimestamps
   );
   const [poopEvents, setPoopEvents] = useState<PoopEvent[]>([]);
-  const [careResetDate, setCareResetDate] = useState('');
-  const [patHeartAwarded, setPatHeartAwarded] = useState(false);
+  const [, setCareResetDate] = useState('');
+  const [, setPatHeartAwarded] = useState(false);
   const [ownedSkins, setOwnedSkins] = useState<SkinId[]>([]);
   const [activeSkins, setActiveSkins] = useState<Record<PetType, SkinId | null>>({ luna: null, bubbo: null, mochi: null, ember: null });
-  const [dashboardLoaded, setDashboardLoaded] = useState(false);
+  const [, setDashboardLoaded] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [careWriteInFlight, setCareWriteInFlight] = useState<CareActionType | null>(null);
   const [careReaction, setCareReaction] = useState<PetReaction | null>(null);
@@ -213,7 +210,6 @@ export default function ChildHome() {
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reactionIdRef = useRef(0);
-  const lastCareStateKeyRef = useRef('');
   const careWriteInFlightRef = useRef(false);
 
   useEffect(() => {
@@ -408,56 +404,6 @@ export default function ChildHome() {
   }, [child, childId, router, searchParams]);
 
   useEffect(() => {
-    if (!dashboardLoaded || !child) return;
-
-    saveChildDashboardState(childId, child, {
-      hearts,
-      screenEnergy,
-      activePetId: activePetType,
-      activePetType,
-      activeEgg,
-      eggMessage,
-      dailyActionCounts,
-      lastActionTimestamps,
-      poopEvents,
-      careResetDate,
-      patHeartAwarded,
-      ownedSkins,
-      activeSkins,
-    });
-  }, [
-    childId,
-    child,
-    dashboardLoaded,
-    hearts,
-    screenEnergy,
-    activePetType,
-    activeEgg,
-    eggMessage,
-    dailyActionCounts,
-    lastActionTimestamps,
-    poopEvents,
-    careResetDate,
-    patHeartAwarded,
-    ownedSkins,
-    activeSkins,
-  ]);
-
-  useEffect(() => {
-    if (!dashboardLoaded) return;
-    const careKey = JSON.stringify({ dailyActionCounts, lastActionTimestamps, poopEvents, patHeartAwarded });
-    if (lastCareStateKeyRef.current === careKey) return;
-    lastCareStateKeyRef.current = careKey;
-    void upsertCareStateForChild(childId, {
-      date: getTodayKey(),
-      actionCounts: dailyActionCounts,
-      lastTimestamps: lastActionTimestamps,
-      poopEvents,
-      patHeartAwarded,
-    });
-  }, [childId, dashboardLoaded, dailyActionCounts, lastActionTimestamps, poopEvents, patHeartAwarded]);
-
-  useEffect(() => {
     return () => {
       if (feedbackTimerRef.current) {
         clearTimeout(feedbackTimerRef.current);
@@ -549,47 +495,19 @@ export default function ChildHome() {
 
     careWriteInFlightRef.current = true;
     setCareWriteInFlight(type);
-    const moodUpdatedAtNow = new Date().toISOString();
-    const currentDashboardState = mergeWithDefaultChildState(
-      child,
-      readChildDashboardState(childId)
-    );
-    const nextMood = boostMoodPercent(currentDashboardState.comfort, config.comfortBoost);
-    const starReward =
-      currentDashboardState.comfort < 100 && nextMood >= 100
-        ? 3
-        : currentDashboardState.comfort < 80 && nextMood >= 80
-          ? 1
-          : 0;
-    const nextStars = clampStars(currentDashboardState.stars + starReward);
-    const nextPoopEvents = type === 'clean' ? clearPoopEvents(poopEvents) : poopEvents;
-
-    setDailyActionCounts((current) => ({
-      ...current,
-      [type]: (current[type] ?? 0) + 1,
-    }));
-    setLastActionTimestamps((current) => ({
-      ...current,
-      [type]: now,
-    }));
-    if (type === 'clean') {
-      setPoopEvents(nextPoopEvents);
-    }
-    setStars(nextStars);
-    setComfort(nextMood);
-    setMoodUpdatedAt(moodUpdatedAtNow);
-    setComfortPulseKey((current) => current + 1);
-    saveChildDashboardState(childId, child, {
-      stars: nextStars,
-      comfort: nextMood,
-      moodUpdatedAt: moodUpdatedAtNow,
-      poopEvents: nextPoopEvents,
-    });
-
+    let starReward = 0;
     try {
-      const syncedState = await syncChildMood(childId, child, nextMood, moodUpdatedAtNow);
-      setComfort(syncedState.comfort);
-      setMoodUpdatedAt(syncedState.moodUpdatedAt);
+      const result = await performCareActionAuthoritatively(child, type);
+      starReward = result.starReward;
+      setStars(result.childState.stars);
+      setComfort(result.childState.comfort);
+      setMoodUpdatedAt(result.childState.moodUpdatedAt);
+      setDailyActionCounts(result.careState.actionCounts);
+      setLastActionTimestamps(result.careState.lastTimestamps);
+      setPoopEvents(result.careState.poopEvents);
+      setCareResetDate(result.careState.date);
+      setPatHeartAwarded(result.careState.patHeartAwarded);
+      setComfortPulseKey((current) => current + 1);
       const syncMeta = readChildSupabaseSyncMeta(childId);
       setSyncDebug((current) =>
         current
@@ -599,15 +517,20 @@ export default function ChildHome() {
               moodPercent: syncMeta.lastMoodPercent,
               moodUpdatedAt: syncMeta.lastMoodUpdatedAt,
               moodDecayApplied: syncMeta.lastMoodDecayApplied,
-              displayedMoodPercent: syncedState.comfort,
-              poopPresent: getUnclearedPoopEvents(nextPoopEvents).length > 0,
-              unclearedPoopCount: getUnclearedPoopEvents(nextPoopEvents).length,
-              oldestPoopTime: getPoopPenaltyInfo(nextPoopEvents).oldestPoopTime,
-              poopPenaltyApplied: getPoopPenaltyInfo(nextPoopEvents).penaltyApplied,
-              poopPenaltyAmount: getPoopPenaltyInfo(nextPoopEvents).penaltyAmount,
+              displayedMoodPercent: result.childState.comfort,
+              poopPresent: getUnclearedPoopEvents(result.careState.poopEvents).length > 0,
+              unclearedPoopCount: getUnclearedPoopEvents(result.careState.poopEvents).length,
+              oldestPoopTime: getPoopPenaltyInfo(result.careState.poopEvents).oldestPoopTime,
+              poopPenaltyApplied: getPoopPenaltyInfo(result.careState.poopEvents).penaltyApplied,
+              poopPenaltyAmount: getPoopPenaltyInfo(result.careState.poopEvents).penaltyAmount,
             }
           : current
       );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Care action failed.';
+      showFeedback(message);
+      triggerCareReaction(type, true, message);
+      return;
     } finally {
       careWriteInFlightRef.current = false;
       setCareWriteInFlight(null);

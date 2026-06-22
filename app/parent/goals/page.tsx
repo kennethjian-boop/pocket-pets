@@ -247,13 +247,14 @@ export default function GoalsPage() {
       }
       pulseChildStat(affectedChild.id, 'stars');
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown Supabase error.';
       console.error('[Goals] Authoritative verification failed', {
         childId,
         missionId,
         completed,
         error,
       });
-      showFeedback('Verification was not saved. Please try again.', 'warning');
+      showFeedback(`Verification failed: ${errorMessage}`, 'warning');
     } finally {
       verificationInFlightRef.current.delete(actionKey);
     }

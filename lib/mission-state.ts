@@ -12,7 +12,10 @@ import {
   fetchChildState,
   mergeSupabaseChildState,
   type SupabaseChildState,
+  updateEquippedPet,
+  updateEquippedSkin,
   updateChildMood,
+  updateOwnedSkins,
   upsertChildStateFromDashboard,
 } from '@/lib/supabase-child-state';
 import {
@@ -1209,7 +1212,7 @@ function getSharedStateMirrorKey(state: Partial<ChildDashboardState>) {
 function mirrorChildDashboardStateToSupabase(
   childId: string,
   child: Child,
-  state: ChildDashboardState,
+  updates: Partial<ChildDashboardState>,
   options: SaveChildDashboardOptions = {}
 ) {
   if (typeof window === 'undefined') return;
@@ -1224,14 +1227,21 @@ function mirrorChildDashboardStateToSupabase(
     return;
   }
 
+  const hasRemoteUpdates =
+    updates.stars !== undefined ||
+    updates.hearts !== undefined ||
+    updates.screenEnergy !== undefined ||
+    options.mirrorEggPurchase;
+  if (!hasRemoteUpdates) return;
+
   const mirrorKey = JSON.stringify({
-    state: getSharedStateMirrorKey(state),
-    eggPurchase: options.mirrorEggPurchase ? state.activeEgg : undefined,
+    state: getSharedStateMirrorKey(updates),
+    eggPurchase: options.mirrorEggPurchase ? updates.activeEgg : undefined,
   });
   if (lastSupabaseMirrorByChild.get(childId) === mirrorKey) return;
   lastSupabaseMirrorByChild.set(childId, mirrorKey);
 
-  void upsertChildStateFromDashboard(child, state, {
+  void upsertChildStateFromDashboard(child, updates, {
     includeEggPurchase: options.mirrorEggPurchase,
   })
     .then((remoteState) => {
@@ -1374,16 +1384,12 @@ export async function hydrateChildDashboardStateFromSupabase(
   if (localWriteIsPending) {
     // Do not let stale remote data erase a verification whose async mirror was
     // interrupted by navigation/refresh. The per-child save cannot touch a sibling.
-    const localStateToKeep = {
-      ...mergeWithDefaultChildState(child, storedState),
-      // These fields can only be changed by the verification transaction (or
-      // egg creation), so an unrelated pending local write never outranks them.
-      unlockedPets: remoteState.ownedPets,
-      activeEgg: remoteState.secretEggState,
-      completedMissions: remoteState.completedMissions,
-    };
-    mirrorChildDashboardStateToSupabase(childId, child, localStateToKeep);
-    return localStateToKeep;
+    const remoteAuthoritativeState = mergeSupabaseChildState(
+      mergeWithDefaultChildState(child, storedState),
+      remoteState
+    );
+    writeChildDashboardState(childId, remoteAuthoritativeState);
+    return remoteAuthoritativeState;
   }
 
   const mergedState = mergeSupabaseChildState(localState, remoteState);
@@ -1491,7 +1497,7 @@ export function saveChildDashboardState(
     moodUpdatedAt: updates.moodUpdatedAt ?? current.moodUpdatedAt,
   };
   writeChildDashboardState(childId, nextState);
-  mirrorChildDashboardStateToSupabase(childId, child, nextState, options);
+  mirrorChildDashboardStateToSupabase(childId, child, updates, options);
   return nextState;
 }
 
@@ -1576,7 +1582,12 @@ export function clearEggMessage(childId: string, child: Child) {
 export function selectActivePet(childId: string, child: Child, petId: PetRosterItem['id']) {
   const current = mergeWithDefaultChildState(child, readChildDashboardState(childId));
   if (!current.unlockedPets.includes(petId)) return current;
-  return saveChildDashboardState(childId, child, { activePetId: petId, activePetType: petId });
+  const nextState = saveChildDashboardState(childId, child, {
+    activePetId: petId,
+    activePetType: petId,
+  });
+  void updateEquippedPet(child, petId);
+  return nextState;
 }
 
 export function purchaseSkin(childId: string, child: Child, skinId: SkinId) {
@@ -1590,6 +1601,12 @@ export function purchaseSkin(childId: string, child: Child, skinId: SkinId) {
     stars: clampStars(current.stars - skin.cost),
     ownedSkins: [...current.ownedSkins, skinId],
   });
+  void fetchChildState(child).then((remote) =>
+    updateOwnedSkins(
+      child,
+      Array.from(new Set([...(remote?.ownedSkins ?? []), ...nextState.ownedSkins]))
+    )
+  );
   return { state: nextState, ok: true, message: `${skin.name} unlocked!` };
 }
 
@@ -1601,7 +1618,16 @@ export function setActiveSkin(
 ) {
   const current = mergeWithDefaultChildState(child, readChildDashboardState(childId));
   if (skinId !== null && !current.ownedSkins.includes(skinId)) return current;
-  return saveChildDashboardState(childId, child, {
+  const nextState = saveChildDashboardState(childId, child, {
     activeSkins: { ...current.activeSkins, [petType]: skinId },
   });
+  void fetchChildState(child).then((remote) =>
+    updateEquippedSkin(
+      child,
+      petType,
+      skinId,
+      remote?.equippedSkinByPet ?? nextState.activeSkins
+    )
+  );
+  return nextState;
 }

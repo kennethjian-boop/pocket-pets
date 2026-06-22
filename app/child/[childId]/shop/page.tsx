@@ -156,21 +156,6 @@ export default function RewardShop() {
     return () => window.clearTimeout(timer);
   }, [child, router, searchParams]);
 
-  useEffect(() => {
-    if (!child || !dashboardLoaded) return;
-
-    saveChildDashboardState(child.id, child, {
-      stars,
-      screenEnergy,
-      ownedSkins,
-      activeSkins,
-      unlockedPets,
-      activePetId: activePetType || undefined,
-      activePetType: activePetType || undefined,
-      activeEgg,
-    });
-  }, [activeEgg, activePetType, activeSkins, child, dashboardLoaded, ownedSkins, stars, screenEnergy, unlockedPets]);
-
   if (!child) return <div>Child not found</div>;
 
   const showMessage = (nextMessage: string) => {
@@ -196,8 +181,13 @@ export default function RewardShop() {
 
     if (reward.type === 'screen-energy') {
       const amount = reward.effectAmount ?? 1;
-      setStars((s) => s - reward.cost);
-      setScreenEnergy((e) => e + amount);
+      const current = mergeWithDefaultChildState(child, readChildDashboardState(child.id));
+      const nextState = saveChildDashboardState(child.id, child, {
+        stars: Math.max(0, current.stars - reward.cost),
+        screenEnergy: current.screenEnergy + amount,
+      });
+      setStars(nextState.stars);
+      setScreenEnergy(nextState.screenEnergy);
       showMessage(amount === 6 ? '+6 Screen Energy added! That is 60 minutes weekend screen time.' : '+1 Screen Energy added!');
       return;
     }
