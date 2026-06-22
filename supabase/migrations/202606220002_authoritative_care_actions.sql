@@ -8,7 +8,7 @@ security definer
 set search_path = public
 as $$
 declare
-  v_today date := (now() at time zone 'Asia/Singapore')::date;
+  v_today text := to_char(now() at time zone 'Asia/Singapore', 'YYYY-MM-DD');
   v_now_ms bigint := floor(extract(epoch from clock_timestamp()) * 1000)::bigint;
   v_child public.children%rowtype;
   v_care public.care_action_state%rowtype;

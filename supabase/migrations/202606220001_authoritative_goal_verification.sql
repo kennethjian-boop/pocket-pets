@@ -9,7 +9,7 @@ security definer
 set search_path = public
 as $$
 declare
-  v_today date := (now() at time zone 'Asia/Singapore')::date;
+  v_today text := to_char(now() at time zone 'Asia/Singapore', 'YYYY-MM-DD');
   v_daily public.daily_goals%rowtype;
   v_child public.children%rowtype;
   v_boss public.family_boss_state%rowtype;
