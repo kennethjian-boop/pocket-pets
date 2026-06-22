@@ -78,6 +78,9 @@ export interface DailyGoalsRecord {
   goalItems?: DailyGoalInstance[];
   completed?: Record<string, boolean>;
   previousGoals?: string[];
+  /** Local write timestamp used to keep an in-flight verification from being
+   * replaced by an older Supabase row during navigation or refresh. */
+  localUpdatedAt?: string;
 }
 
 export type DailyGoalsByChild = Record<string, DailyGoalsRecord>;
@@ -1012,6 +1015,36 @@ export async function resolveAuthoritativeDailyGoalsForChild(
   const remote = fetchResult.state;
 
   if (remote?.date === today && remote.goalIds.length === 3) {
+    const localWriteIsNewer =
+      localRecord?.date === today &&
+      getUniqueGoalIds(localRecord.goals).length === 3 &&
+      Boolean(localRecord.localUpdatedAt) &&
+      new Date(localRecord.localUpdatedAt!).getTime() > new Date(remote.updatedAt).getTime();
+
+    if (localWriteIsNewer && localRecord) {
+      // A refresh can happen before the verification request reaches Supabase.
+      // Keep the newer per-child local transaction and retry its remote mirror.
+      void upsertDailyGoalsForChild(
+        childId,
+        localRecord,
+        localRecord.source,
+        'verification_update'
+      );
+      const localGoals = dailyGoalInstancesToMissions(
+        localRecord.goalItems?.length
+          ? enrichDailyGoalInstances(localRecord.goalItems)
+          : goalIdsToDailyGoalInstances(localRecord.goals, localRecord.completed)
+      );
+      return {
+        record: localRecord,
+        goals: localGoals,
+        remote,
+        source: 'local-fallback',
+        generationHappened: false,
+        localStorageFallbackUsed: true,
+      };
+    }
+
     const remoteGoals = remote.goals.length === 3
       ? enrichDailyGoalInstances(remote.goals)
       : goalIdsToDailyGoalInstances(remote.goalIds);
@@ -1097,6 +1130,7 @@ export async function updateDailyGoalCompletionForChild(
       ...localRecord,
       goalItems: nextGoalItems,
       completed: getCompletedMissionsFromDailyGoals(nextGoalItems),
+      localUpdatedAt: new Date().toISOString(),
     };
     writeDailyGoalsByChild({
       ...localGoalsByChild,
@@ -1423,6 +1457,22 @@ export async function hydrateChildDashboardStateFromSupabase(
 
   remoteHydrationFailedByChild.delete(childId);
   const remoteState = applyRemoteMoodDecay(childId, child, fetchedRemoteState);
+
+  const localWriteIsPending =
+    Boolean(storedState && syncMeta.lastLocalWriteAt) &&
+    (!syncMeta.lastSupabaseWriteAt ||
+      new Date(syncMeta.lastLocalWriteAt!).getTime() >
+        new Date(syncMeta.lastSupabaseWriteAt).getTime()) &&
+    new Date(syncMeta.lastLocalWriteAt!).getTime() >
+      new Date(remoteState.updatedAt).getTime();
+
+  if (localWriteIsPending) {
+    // Do not let stale remote data erase a verification whose async mirror was
+    // interrupted by navigation/refresh. The per-child save cannot touch a sibling.
+    const localStateToKeep = mergeWithDefaultChildState(child, storedState);
+    mirrorChildDashboardStateToSupabase(childId, child, localStateToKeep);
+    return localStateToKeep;
+  }
 
   const mergedState = mergeSupabaseChildState(localState, remoteState);
   writeChildDashboardState(childId, mergedState);

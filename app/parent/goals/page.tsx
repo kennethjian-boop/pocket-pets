@@ -69,6 +69,34 @@ export default function GoalsPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      // Hydrate the per-child cache before waiting on the network. This keeps a
+      // freshly verified mobile checkbox and balance stable across navigation
+      // and refresh, while the authoritative reconciliation runs below.
+      const localDashboardStates = buildDashboardStates(true);
+      const localGoals = buildGoalsByChild(true);
+      setDashboardStates(localDashboardStates);
+      setGoalsByChild(localGoals);
+      setGoalModes(buildGoalModes(true));
+      setGoalSelections(
+        Object.fromEntries(
+          mockChildren.map((child) => [
+            child.id,
+            (localGoals[child.id] ?? dailyMissionTemplates).map((goal) => goal.id),
+          ])
+        )
+      );
+      setChildrenData((current) =>
+        current.map((child) => {
+          const state = localDashboardStates[child.id];
+          return {
+            ...child,
+            stars: state.stars,
+            hearts: state.hearts,
+            screenEnergy: state.screenEnergy,
+          };
+        })
+      );
+
       void buildDashboardStatesFromSupabase().then((hydrated) => {
       const hydratedGoals = buildGoalsByChild(true);
       const hydratedModes = buildGoalModes(true);
