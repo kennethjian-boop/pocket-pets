@@ -5,8 +5,7 @@ import type { DailyGoalInstance, DailyGoalsRecord, GoalSetupMode } from '@/lib/m
 
 export type DailyGoalsWriteReason =
   | 'randomise_click'
-  | 'manual_save'
-  | 'verification_update';
+  | 'manual_save';
 
 type DailyGoalsRow = {
   id?: string | null;
@@ -37,7 +36,6 @@ export type FetchDailyGoalsResult = {
 
 const VALID_SETUP_MODES = new Set<GoalSetupMode>(['auto', 'manual', 'random']);
 const SELECT_WITH_ID = 'id, child_id, date, goals, goal_ids, setup_mode, previous_goal_ids, updated_at';
-const SELECT = 'child_id, date, goal_ids, setup_mode, previous_goal_ids, updated_at';
 const CANONICAL_SELECT = 'id, child_id, date, goals, updated_at';
 const CANONICAL_SELECT_NO_ID = 'child_id, date, goals, updated_at';
 

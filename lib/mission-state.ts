@@ -4,7 +4,6 @@ import { normalizeScreenEnergy } from '@/lib/screen-energy';
 import { SKIN_ROSTER, VALID_SKIN_IDS, type PetType, type SkinId } from '@/lib/pet-skins';
 import {
   applyMoodDecay,
-  boostMoodPercent,
   INITIAL_MOOD_PERCENT,
   clampMoodPercent,
   type MoodDecayResult,
@@ -17,7 +16,6 @@ import {
   upsertChildStateFromDashboard,
 } from '@/lib/supabase-child-state';
 import {
-  fetchDailyGoalsForChild,
   fetchDailyGoalsForChildResult,
   upsertDailyGoalsForChild,
   type DailyGoalsWriteReason,
@@ -78,9 +76,6 @@ export interface DailyGoalsRecord {
   goalItems?: DailyGoalInstance[];
   completed?: Record<string, boolean>;
   previousGoals?: string[];
-  /** Local write timestamp used to keep an in-flight verification from being
-   * replaced by an older Supabase row during navigation or refresh. */
-  localUpdatedAt?: string;
 }
 
 export type DailyGoalsByChild = Record<string, DailyGoalsRecord>;
@@ -179,6 +174,7 @@ export interface SecretEggState {
 
 interface SaveChildDashboardOptions {
   allowEggProgressRegression?: boolean;
+  mirrorEggPurchase?: boolean;
 }
 
 export { SKIN_ROSTER, SKIN_COST, skinsByPet, getSkinById } from '@/lib/pet-skins';
@@ -432,7 +428,6 @@ export const dailyMissionTemplates: DailyMission[] = goalBank.slice(0, 3).map((g
 }));
 
 const MAX_STARS = 9999;
-const VERIFIED_GOAL_MOOD_REWARD = 3;
 const DAILY_GOALS_STORAGE_KEY = 'daily-goals-by-child';
 const GOAL_SETUP_STORAGE_KEY = 'daily-goal-setup';
 
@@ -842,7 +837,10 @@ export function goalIdsToDailyGoalInstances(
 }
 
 export function dailyGoalInstancesToMissions(goals: DailyGoalInstance[]) {
-  return goals.map(({ completed: _completed, ...goal }) => goal);
+  return goals.map(({ completed, ...goal }) => {
+    void completed;
+    return goal;
+  });
 }
 
 export function getCompletedMissionsFromDailyGoals(goals: DailyGoalInstance[]) {
@@ -1015,36 +1013,6 @@ export async function resolveAuthoritativeDailyGoalsForChild(
   const remote = fetchResult.state;
 
   if (remote?.date === today && remote.goalIds.length === 3) {
-    const localWriteIsNewer =
-      localRecord?.date === today &&
-      getUniqueGoalIds(localRecord.goals).length === 3 &&
-      Boolean(localRecord.localUpdatedAt) &&
-      new Date(localRecord.localUpdatedAt!).getTime() > new Date(remote.updatedAt).getTime();
-
-    if (localWriteIsNewer && localRecord) {
-      // A refresh can happen before the verification request reaches Supabase.
-      // Keep the newer per-child local transaction and retry its remote mirror.
-      void upsertDailyGoalsForChild(
-        childId,
-        localRecord,
-        localRecord.source,
-        'verification_update'
-      );
-      const localGoals = dailyGoalInstancesToMissions(
-        localRecord.goalItems?.length
-          ? enrichDailyGoalInstances(localRecord.goalItems)
-          : goalIdsToDailyGoalInstances(localRecord.goals, localRecord.completed)
-      );
-      return {
-        record: localRecord,
-        goals: localGoals,
-        remote,
-        source: 'local-fallback',
-        generationHappened: false,
-        localStorageFallbackUsed: true,
-      };
-    }
-
     const remoteGoals = remote.goals.length === 3
       ? enrichDailyGoalInstances(remote.goals)
       : goalIdsToDailyGoalInstances(remote.goalIds);
@@ -1107,73 +1075,6 @@ export async function resolveAuthoritativeDailyGoalsForChild(
     finalGoals: result.goals,
   });
   return result;
-}
-
-export async function updateDailyGoalCompletionForChild(
-  childId: string,
-  goalId: string,
-  completed: boolean
-) {
-  const today = getTodayKey();
-  const localGoalsByChild = readDailyGoalsByChild();
-  const localRecord = localGoalsByChild[childId];
-  let localCompletionRecord: DailyGoalsRecord | null = null;
-
-  if (localRecord?.date === today && localRecord.goals.includes(goalId)) {
-    const currentGoalItems = localRecord.goalItems?.length
-      ? enrichDailyGoalInstances(localRecord.goalItems)
-      : goalIdsToDailyGoalInstances(localRecord.goals, localRecord.completed);
-    const nextGoalItems = currentGoalItems.map((goal) =>
-      goal.id === goalId ? { ...goal, completed } : goal
-    );
-    localCompletionRecord = {
-      ...localRecord,
-      goalItems: nextGoalItems,
-      completed: getCompletedMissionsFromDailyGoals(nextGoalItems),
-      localUpdatedAt: new Date().toISOString(),
-    };
-    writeDailyGoalsByChild({
-      ...localGoalsByChild,
-      [childId]: localCompletionRecord,
-    });
-  }
-
-  const remote = await fetchDailyGoalsForChild(childId, today);
-  if (!remote?.goalIds.includes(goalId)) return localCompletionRecord;
-
-  const currentGoals =
-    remote.goals.length === 3
-      ? enrichDailyGoalInstances(remote.goals)
-      : goalIdsToDailyGoalInstances(remote.goalIds);
-  const nextGoals = currentGoals.map((goal) =>
-    goal.id === goalId ? { ...goal, completed } : goal
-  );
-  const nextCompleted = getCompletedMissionsFromDailyGoals(nextGoals);
-  const nextRecord: DailyGoalsRecord = {
-    date: remote.date,
-    source: remote.setupMode !== 'auto' ? remote.setupMode : 'random',
-    goals: nextGoals.map((goal) => goal.id),
-    goalItems: nextGoals,
-    completed: nextCompleted,
-    previousGoals: remote.previousGoalIds,
-  };
-  const persisted = await upsertDailyGoalsForChild(
-    childId,
-    nextRecord,
-    remote.setupMode,
-    'verification_update'
-  );
-  const finalGoals = persisted?.goals.length === 3 ? enrichDailyGoalInstances(persisted.goals) : nextGoals;
-  const finalRecord = {
-    ...nextRecord,
-    goalItems: finalGoals,
-    completed: getCompletedMissionsFromDailyGoals(finalGoals),
-  };
-  writeDailyGoalsByChild({
-    ...readDailyGoalsByChild(),
-    [childId]: finalRecord,
-  });
-  return finalRecord;
 }
 
 export function setDailyGoalsForChild(
@@ -1299,9 +1200,7 @@ function getSharedStateMirrorKey(state: Partial<ChildDashboardState>) {
     screenEnergy: state.screenEnergy,
     activePetId: state.activePetId ?? state.activePetType,
     activeSkins: state.activeSkins,
-    unlockedPets: state.unlockedPets,
     ownedSkins: state.ownedSkins,
-    activeEgg: state.activeEgg,
     comfort: state.comfort,
     moodUpdatedAt: state.moodUpdatedAt,
   });
@@ -1310,7 +1209,8 @@ function getSharedStateMirrorKey(state: Partial<ChildDashboardState>) {
 function mirrorChildDashboardStateToSupabase(
   childId: string,
   child: Child,
-  state: ChildDashboardState
+  state: ChildDashboardState,
+  options: SaveChildDashboardOptions = {}
 ) {
   if (typeof window === 'undefined') return;
 
@@ -1324,11 +1224,16 @@ function mirrorChildDashboardStateToSupabase(
     return;
   }
 
-  const mirrorKey = getSharedStateMirrorKey(state);
+  const mirrorKey = JSON.stringify({
+    state: getSharedStateMirrorKey(state),
+    eggPurchase: options.mirrorEggPurchase ? state.activeEgg : undefined,
+  });
   if (lastSupabaseMirrorByChild.get(childId) === mirrorKey) return;
   lastSupabaseMirrorByChild.set(childId, mirrorKey);
 
-  void upsertChildStateFromDashboard(child, state)
+  void upsertChildStateFromDashboard(child, state, {
+    includeEggPurchase: options.mirrorEggPurchase,
+  })
     .then((remoteState) => {
       if (!remoteState) {
         writeChildSupabaseSyncMeta(childId, {
@@ -1469,7 +1374,14 @@ export async function hydrateChildDashboardStateFromSupabase(
   if (localWriteIsPending) {
     // Do not let stale remote data erase a verification whose async mirror was
     // interrupted by navigation/refresh. The per-child save cannot touch a sibling.
-    const localStateToKeep = mergeWithDefaultChildState(child, storedState);
+    const localStateToKeep = {
+      ...mergeWithDefaultChildState(child, storedState),
+      // These fields can only be changed by the verification transaction (or
+      // egg creation), so an unrelated pending local write never outranks them.
+      unlockedPets: remoteState.ownedPets,
+      activeEgg: remoteState.secretEggState,
+      completedMissions: remoteState.completedMissions,
+    };
     mirrorChildDashboardStateToSupabase(childId, child, localStateToKeep);
     return localStateToKeep;
   }
@@ -1579,7 +1491,7 @@ export function saveChildDashboardState(
     moodUpdatedAt: updates.moodUpdatedAt ?? current.moodUpdatedAt,
   };
   writeChildDashboardState(childId, nextState);
-  mirrorChildDashboardStateToSupabase(childId, child, nextState);
+  mirrorChildDashboardStateToSupabase(childId, child, nextState, options);
   return nextState;
 }
 
@@ -1598,51 +1510,11 @@ function resolveActiveEggUpdate(
   return updatedEgg;
 }
 
-export function setMissionCompletion(
-  childId: string,
-  child: Child,
-  mission: DailyMission,
-  completed: boolean,
-  options: { mirrorToSupabase?: boolean } = {}
-) {
-  const current = mergeWithDefaultChildState(child, readChildDashboardState(childId));
-  const wasCompleted = current.completedMissions[mission.id] ?? false;
-
-  if (wasCompleted === completed) {
-    return current;
-  }
-
-  const completedMissions = {
-    ...current.completedMissions,
-    [mission.id]: completed,
-  };
-
-  const starReward = mission.starReward ?? mission.reward;
-  const stars = clampStars(current.stars + (completed ? starReward : -starReward));
-  const moodUpdatedAt = new Date().toISOString();
-  const comfort = completed
-    ? boostMoodPercent(current.comfort, VERIFIED_GOAL_MOOD_REWARD)
-    : current.comfort;
-  const nextState = { ...current, completedMissions, stars, comfort, moodUpdatedAt };
-  writeChildDashboardState(childId, nextState);
-  void updateDailyGoalCompletionForChild(childId, mission.id, completed);
-  if (options.mirrorToSupabase !== false) {
-    mirrorChildDashboardStateToSupabase(childId, child, nextState);
-  }
-  return nextState;
-}
-
 export const SECRET_EGG_COST = 50;
 export const SECRET_EGG_REQUIRED_GOALS = 10;
 
 export function getLockedPets(state: ChildDashboardState) {
   return PET_ROSTER.filter((pet) => !state.unlockedPets.includes(pet.id));
-}
-
-export function getRandomLockedPet(unlockedPets: PetRosterItem['id'][]) {
-  const lockedPets = PET_ROSTER.filter((pet) => !unlockedPets.includes(pet.id));
-  if (lockedPets.length === 0) return null;
-  return lockedPets[Math.floor(Math.random() * lockedPets.length)];
 }
 
 export function createSecretEgg(childId: string, child: Child) {
@@ -1671,19 +1543,24 @@ export function createSecretEgg(childId: string, child: Child) {
     };
   }
 
-  const nextState = saveChildDashboardState(childId, child, {
-    stars: clampStars(current.stars - SECRET_EGG_COST),
-    activeEgg: {
-      id: `secret-egg-${Date.now()}`,
-      type: 'secret-egg',
-      progress: 0,
-      requiredGoals: SECRET_EGG_REQUIRED_GOALS,
-      contributedGoalIds: [],
-      hatched: false,
-      unlockedPetId: null,
+  const nextState = saveChildDashboardState(
+    childId,
+    child,
+    {
+      stars: clampStars(current.stars - SECRET_EGG_COST),
+      activeEgg: {
+        id: `secret-egg-${Date.now()}`,
+        type: 'secret-egg',
+        progress: 0,
+        requiredGoals: SECRET_EGG_REQUIRED_GOALS,
+        contributedGoalIds: [],
+        hatched: false,
+        unlockedPetId: null,
+      },
+      eggMessage: null,
     },
-    eggMessage: null,
-  });
+    { mirrorEggPurchase: true }
+  );
 
   return {
     state: nextState,
@@ -1700,69 +1577,6 @@ export function selectActivePet(childId: string, child: Child, petId: PetRosterI
   const current = mergeWithDefaultChildState(child, readChildDashboardState(childId));
   if (!current.unlockedPets.includes(petId)) return current;
   return saveChildDashboardState(childId, child, { activePetId: petId, activePetType: petId });
-}
-
-export function updateSecretEggProgressForGoal(
-  childId: string,
-  child: Child,
-  goalContributionId: string,
-  completed: boolean
-) {
-  const current = mergeWithDefaultChildState(child, readChildDashboardState(childId));
-  const egg = current.activeEgg;
-  if (!egg || egg.hatched) return current;
-
-  const hasContribution = egg.contributedGoalIds.includes(goalContributionId);
-  if (completed && hasContribution) return current;
-  if (!completed && !hasContribution) return current;
-
-  const contributedGoalIds = completed
-    ? [...egg.contributedGoalIds, goalContributionId]
-    : egg.contributedGoalIds.filter((goalId) => goalId !== goalContributionId);
-  const progress = completed
-    ? Math.max(
-        0,
-        Math.min(egg.requiredGoals, Math.max(egg.progress + 1, contributedGoalIds.length))
-      )
-    : Math.max(
-        0,
-        Math.min(egg.requiredGoals, Math.min(egg.progress - 1, contributedGoalIds.length))
-      );
-
-  if (progress < egg.requiredGoals) {
-    return saveChildDashboardState(childId, child, {
-      activeEgg: {
-        ...egg,
-        progress,
-        contributedGoalIds,
-      },
-    }, { allowEggProgressRegression: !completed });
-  }
-
-  const unlockedPet = getRandomLockedPet(current.unlockedPets);
-  if (!unlockedPet) {
-    return saveChildDashboardState(childId, child, {
-      activeEgg: {
-        ...egg,
-        progress,
-        contributedGoalIds,
-        hatched: true,
-      },
-      eggMessage: 'Your Secret Egg hatched, but all pets are already unlocked!',
-    });
-  }
-
-  return saveChildDashboardState(childId, child, {
-    unlockedPets: [...current.unlockedPets, unlockedPet.id],
-    activeEgg: {
-      ...egg,
-      progress: egg.requiredGoals,
-      contributedGoalIds,
-      hatched: true,
-      unlockedPetId: unlockedPet.id,
-    },
-    eggMessage: `Your Secret Egg hatched! You unlocked ${unlockedPet.name}!`,
-  });
 }
 
 export function purchaseSkin(childId: string, child: Child, skinId: SkinId) {

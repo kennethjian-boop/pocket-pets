@@ -11,7 +11,6 @@ import {
   mergeWithDefaultChildState,
   randomizeAuthoritativeDailyGoalsForChild,
   readChildDashboardState,
-  saveChildDashboardState,
   setAuthoritativeDailyGoalsForChild,
   setGoalSetupMode,
 } from '@/lib/mission-state';
@@ -64,6 +63,7 @@ export default function GoalsPage() {
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const panelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const statTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const verificationInFlightRef = useRef(new Set<string>());
 
   // ── Hydrate ────────────────────────────────────────────────────────────────
 
@@ -174,18 +174,19 @@ export default function GoalsPage() {
 
   // ── Goal completion reset helper ───────────────────────────────────────────
 
-  const resetGoalCompletionForChild = (child: MockChild) => {
+  const resetGoalCompletionForChild = async (child: MockChild) => {
     const currentState =
       dashboardStates[child.id] ??
       mergeWithDefaultChildState(child, readChildDashboardState(child.id));
     const currentGoals = goalsByChild[child.id] ?? dailyMissionTemplates;
 
-    currentGoals.forEach((goal) => {
-      if (!currentState.completedMissions[goal.id]) return;
-      verifyDailyGoal(child, goal, false);
-    });
+    let nextState = currentState;
+    for (const goal of currentGoals) {
+      if (!currentState.completedMissions[goal.id]) continue;
+      const result = await verifyDailyGoal(child, goal.id, false);
+      nextState = result.childState;
+    }
 
-    const nextState = saveChildDashboardState(child.id, child, { completedMissions: {} });
     setDashboardStates((cur) => ({ ...cur, [child.id]: nextState }));
     setChildrenData((cur) =>
       cur.map((item) =>
@@ -203,7 +204,7 @@ export default function GoalsPage() {
 
   // ── Mission completion ─────────────────────────────────────────────────────
 
-  const handleMissionCompletion = (
+  const handleMissionCompletion = async (
     childId: string,
     missionId: string,
     completed: boolean
@@ -214,38 +215,48 @@ export default function GoalsPage() {
     if (!mission) return;
     const affectedChild = childrenData.find((c) => c.id === childId);
     const bossDamage = mission.bossDamage ?? 10;
+    if (!affectedChild) return;
+    const actionKey = `${childId}:${missionId}`;
+    if (verificationInFlightRef.current.has(actionKey)) return;
+    verificationInFlightRef.current.add(actionKey);
 
-    if (affectedChild) {
+    try {
+      const { childState } = await verifyDailyGoal(affectedChild, mission.id, completed);
+      setDashboardStates((cur) => ({ ...cur, [childId]: childState }));
+      setChildrenData((cur) =>
+        cur.map((child) =>
+          child.id === childId
+            ? {
+                ...child,
+                stars: childState.stars,
+                hearts: childState.hearts,
+                screenEnergy: childState.screenEnergy,
+              }
+            : child
+        )
+      );
       if (completed) {
         showFeedback(
           `${mission.title} verified for ${affectedChild.name}. Boss took ${bossDamage} damage.`,
           'success'
         );
         highlightChildPanel(affectedChild.id, 'success');
-        pulseChildStat(affectedChild.id, 'stars');
       } else {
         showFeedback(`${mission.title} unverified for ${affectedChild.name}.`, 'info');
         highlightChildPanel(affectedChild.id, 'info');
-        pulseChildStat(affectedChild.id, 'stars');
       }
+      pulseChildStat(affectedChild.id, 'stars');
+    } catch (error) {
+      console.error('[Goals] Authoritative verification failed', {
+        childId,
+        missionId,
+        completed,
+        error,
+      });
+      showFeedback('Verification was not saved. Please try again.', 'warning');
+    } finally {
+      verificationInFlightRef.current.delete(actionKey);
     }
-
-    if (!affectedChild) return;
-    const { childState } = verifyDailyGoal(affectedChild, mission, completed);
-    setDashboardStates((cur) => ({ ...cur, [childId]: childState }));
-    setChildrenData((cur) =>
-      cur.map((child) =>
-        child.id === childId
-          ? {
-              ...child,
-              stars: childState.stars,
-              hearts: childState.hearts,
-              screenEnergy: childState.screenEnergy,
-            }
-          : child
-      )
-    );
-    if (childState.eggMessage) showFeedback(childState.eggMessage, 'success');
   };
 
   // ── Goal randomise ─────────────────────────────────────────────────────────
@@ -288,7 +299,6 @@ export default function GoalsPage() {
     setGoalSelections((cur) => ({ ...cur, [childId]: record.goals }));
     setGoalModes((cur) => ({ ...cur, [childId]: 'random' }));
     setGoalSetupMode(childId, 'random');
-    resetGoalCompletionForChild(child);
     showFeedback(`${child.name}'s goals randomised for today.`, 'info');
     highlightChildPanel(childId, 'info');
   };
@@ -309,6 +319,7 @@ export default function GoalsPage() {
     }
     let record;
     try {
+      await resetGoalCompletionForChild(child);
       record = await setAuthoritativeDailyGoalsForChild(childId, selected, 'manual');
     } catch (error) {
       console.error('[Goals] Manual save failed', { childId, selected, error });
@@ -325,7 +336,6 @@ export default function GoalsPage() {
     setGoalSelections((cur) => ({ ...cur, [childId]: record.goals }));
     setGoalModes((cur) => ({ ...cur, [childId]: 'manual' }));
     setGoalSetupMode(childId, 'manual');
-    resetGoalCompletionForChild(child);
     showFeedback(`${child.name}'s goals saved for today.`, 'success');
     highlightChildPanel(childId, 'success');
   };
@@ -539,7 +549,11 @@ export default function GoalsPage() {
                                 type="checkbox"
                                 checked={completed}
                                 onChange={(event) =>
-                                  handleMissionCompletion(activeChild.id, mission.id, event.target.checked)
+                                  void handleMissionCompletion(
+                                    activeChild.id,
+                                    mission.id,
+                                    event.target.checked
+                                  )
                                 }
                                 className="h-6 w-6 shrink-0 rounded border-emerald-300 accent-emerald-500"
                               />

@@ -57,6 +57,10 @@ type CurrencyUpdate = Partial<
   Pick<SupabaseChildState, 'stars' | 'hearts' | 'screenEnergy'>
 >;
 
+export type ChildDashboardUpsertOptions = {
+  includeEggPurchase?: boolean;
+};
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const VALID_PETS = new Set<PetRosterItem['id']>(['luna', 'bubbo', 'mochi', 'ember']);
@@ -168,12 +172,16 @@ function toSupabaseChildState(row: ChildrenRow, child: Child): SupabaseChildStat
   };
 }
 
-function toChildrenUpsert(child: Child, state: Partial<ChildDashboardState>) {
+function toChildrenUpsert(
+  child: Child,
+  state: Partial<ChildDashboardState>,
+  options: ChildDashboardUpsertOptions
+) {
   const fallbackPet = getPetByChildId(child.id)?.pet ?? 'bubbo';
   const equippedPet = normalizePet(state.activePetId ?? state.activePetType, fallbackPet);
   const activeSkins = normalizeActiveSkins(state.activeSkins);
 
-  return {
+  const payload: Record<string, unknown> = {
     child_id: child.id,
     display_name: child.name,
     stars: Math.max(0, Math.floor(state.stars ?? child.stars)),
@@ -181,13 +189,18 @@ function toChildrenUpsert(child: Child, state: Partial<ChildDashboardState>) {
     screen_energy: normalizeScreenEnergy(state.screenEnergy ?? child.screenEnergy),
     equipped_pet: equippedPet,
     equipped_skin_by_pet: activeSkins,
-    owned_pets: state.unlockedPets ?? [fallbackPet],
     owned_skins: state.ownedSkins ?? [],
-    secret_egg_state: state.activeEgg ?? null,
-    completed_missions: state.completedMissions ?? {},
     mood_percent: clampMoodPercent(state.comfort ?? INITIAL_MOOD_PERCENT),
     mood_updated_at: state.moodUpdatedAt ?? new Date().toISOString(),
   };
+
+  // Goal completion, egg progress/hatching, and pet unlocks are owned by the
+  // verification transaction. Generic dashboard snapshots must never replace them.
+  if (options.includeEggPurchase) {
+    payload.secret_egg_state = state.activeEgg ?? null;
+  }
+
+  return payload;
 }
 
 // ─── Merge helper (used by mission-state hydration) ──────────────────────────
@@ -211,8 +224,8 @@ export function mergeSupabaseChildState(
     // Phase 2 fields
     unlockedPets: remoteState.ownedPets,
     ownedSkins: remoteState.ownedSkins,
-    // Prefer remote egg; fall back to local if remote has none (race condition guard)
-    activeEgg: remoteState.secretEggState ?? localState.activeEgg,
+    // Egg state is authoritative in Supabase, including an authoritative null.
+    activeEgg: remoteState.secretEggState,
     // Phase 3 — remote wins: parent verification must reflect across devices
     completedMissions: remoteState.completedMissions,
     comfort: remoteState.moodPercent,
@@ -246,12 +259,13 @@ export async function fetchChildState(
 
 export async function upsertChildStateFromDashboard(
   child: Child,
-  state: Partial<ChildDashboardState>
+  state: Partial<ChildDashboardState>,
+  options: ChildDashboardUpsertOptions = {}
 ) {
   if (!hasSupabaseBrowserEnv()) return null;
 
   const supabase = getSupabaseBrowserClient();
-  const payload = toChildrenUpsert(child, state);
+  const payload = toChildrenUpsert(child, state, options);
   const { data, error } = await supabase
     .from('children')
     .upsert(payload, { onConflict: 'child_id' })
