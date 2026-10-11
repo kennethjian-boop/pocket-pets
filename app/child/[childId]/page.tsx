@@ -296,8 +296,8 @@ export default function ChildHome() {
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-3 pb-6 pt-3 sm:px-6 sm:pt-5 lg:px-8 lg:py-8">
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.12fr)_minmax(340px,0.88fr)] lg:items-start lg:gap-7">
+    <div className="mx-auto w-full max-w-6xl px-3 pb-6 pt-3 sm:px-6 sm:pt-5 short:pt-2 lg:px-8 lg:py-8">
+      <div className="grid gap-4 short:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] short:items-start lg:grid-cols-[minmax(0,1.12fr)_minmax(340px,0.88fr)] lg:items-start lg:gap-7">
         <div className="min-w-0">
           <Habitat
             phase={phase}

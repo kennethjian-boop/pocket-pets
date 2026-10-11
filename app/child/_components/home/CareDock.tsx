@@ -54,7 +54,7 @@ export function CareDock({
   petName: string;
 }) {
   return (
-    <div className="surface relative z-10 mx-2 -mt-9 grid grid-cols-3 gap-1 px-2 pb-3 pt-3 sm:mx-6 sm:gap-3 sm:px-4">
+    <div className="surface relative z-10 mx-2 -mt-9 short:mx-0 short:mt-3 grid grid-cols-3 gap-1 px-2 pb-3 pt-3 sm:mx-6 sm:gap-3 sm:px-4">
       {buttons.map((button) => {
         const meta = META[button.type];
         const usedUp = button.remaining <= 0;

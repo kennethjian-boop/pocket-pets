@@ -192,7 +192,7 @@ export default function RewardShop() {
             ) : null}
 
             <ul className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-              {skinsByPet[browsingPet].map((skin) => {
+              {skinsByPet[browsingPet].map((skin, index) => {
                 const petName = PET_ROSTER.find((p) => p.id === skin.petType)?.name ?? '';
                 const isOwned = state.ownedSkins.includes(skin.id as SkinId);
                 const wearing = state.activeSkins[skin.petType] === skin.id;
@@ -206,6 +206,7 @@ export default function RewardShop() {
                         alt={skin.name}
                         fill
                         sizes="(min-width: 1024px) 220px, (min-width: 640px) 30vw, 45vw"
+                        loading={index < 4 ? 'eager' : 'lazy'}
                         className={`object-contain p-1 transition ${petOwned ? '' : 'grayscale opacity-40'}`}
                       />
                       {wearing ? (

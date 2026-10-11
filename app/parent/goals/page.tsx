@@ -52,7 +52,7 @@ export default function GoalsPage() {
 
   return (
     <>
-      <ParentHeader title="Goals" subtitle="Verify today's goals and choose tomorrow's" />
+      <ParentHeader title="Goals" subtitle="Verify and choose today's goals" />
       <ParentBody>
         <ChildTabs
           items={mockChildren.map((c) => {

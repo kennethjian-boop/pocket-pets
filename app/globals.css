@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+/* Phones held sideways: very little height, plenty of width. */
+@custom-variant short {
+  @media (orientation: landscape) and (max-height: 520px) {
+    @slot;
+  }
+}
+
 /*
  * Pocket Pets design tokens.
  * Child side: cozy storybook — plum ink on warm paper, honey stars, berry hearts,

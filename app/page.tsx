@@ -164,7 +164,7 @@ export default function LandingPage() {
 
         <main className="flex flex-1 flex-col justify-center py-4">
           <motion.h1
-            className={`text-center font-display text-4xl font-semibold leading-tight sm:text-5xl ${phase === 'night' ? 'text-white' : 'text-ink'}`}
+            className={`text-center font-display text-4xl font-semibold leading-tight sm:text-5xl short:text-3xl ${phase === 'night' ? 'text-white' : 'text-ink'}`}
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
           >
@@ -173,7 +173,7 @@ export default function LandingPage() {
           <p className={`mt-2 text-center text-base font-bold ${phase === 'night' ? 'text-plum-100' : 'text-ink-soft'}`}>
             Tap your pet to start your adventure
           </p>
-          <div className="mt-6 grid grid-cols-2 gap-3 sm:mt-10 sm:gap-6">
+          <div className="mt-6 grid grid-cols-2 gap-3 sm:mt-10 sm:gap-6 short:mt-4">
             {mockChildren.map((child, index) => (
               <PlayerCard key={child.id} child={child} view={players[child.id] ?? null} index={index} />
             ))}

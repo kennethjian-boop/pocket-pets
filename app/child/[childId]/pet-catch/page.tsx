@@ -288,11 +288,11 @@ export default function PetCatchGamePage() {
   const timeFraction = timeLeft / PET_CATCH_DURATION_SECONDS;
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col px-3 pb-3 pt-3 sm:px-6 lg:py-8">
+    <div className="mx-auto flex w-full max-w-3xl flex-col px-3 pb-3 pt-3 sm:px-6 short:max-w-none short:pt-2 short:pb-2 lg:py-8">
       <motion.div
         ref={arenaRef}
         data-pet-catch-arena
-        className="relative h-[max(400px,calc(100dvh-230px))] touch-none select-none overflow-hidden rounded-[2rem] border-[3px] border-white shadow-pop sm:h-[min(640px,calc(100dvh-220px))] lg:h-[min(660px,calc(100dvh-140px))]"
+        className="relative h-[max(400px,calc(100dvh-230px))] touch-none select-none overflow-hidden rounded-[2rem] border-[3px] border-white shadow-pop sm:h-[min(640px,calc(100dvh-220px))] lg:h-[min(660px,calc(100dvh-140px))] short:h-[calc(100dvh-112px)] short:min-h-[220px]"
         animate={shake}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -376,14 +376,15 @@ export default function PetCatchGamePage() {
         {/* Overlays */}
         <AnimatePresence>
           {phase === 'ready' || phase === 'paying' ? (
-            <motion.div key="ready" className="absolute inset-0 z-40 grid place-items-center bg-white/45 p-4 backdrop-blur-[3px]" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <div className="surface w-full max-w-sm p-5 text-center">
-                <div className="mx-auto h-32 w-36">
+            <motion.div key="ready" className="absolute inset-0 z-40 grid place-items-center bg-white/45 p-4 backdrop-blur-[3px] short:p-2" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <div className="surface max-h-full w-full max-w-sm overflow-y-auto p-5 text-center short:max-w-lg short:p-3">
+                <div className="mx-auto h-32 w-36 short:hidden">
                   {hasSnapshot ? <PetSprite pet={pet} mood="happy" skinId={skinId} petName={petName} sizes="160px" eager className="h-full w-full" /> : null}
                 </div>
                 <h1 className="mt-1 font-display text-3xl font-semibold text-ink">Pet Catch</h1>
                 <p className="text-sm font-bold text-ink-soft">Help {petName} catch treats for 60 seconds!</p>
-                <div className="mt-3 grid grid-cols-3 gap-2" aria-label="Catch stars, candy and gems for 1 point, rainbows for 5, avoid bombs which take 2">
+                <p className="hidden text-sm font-bold text-ink-soft short:block">Stars, candy &amp; gems +1 · rainbows +5 · bombs −2</p>
+                <div className="mt-3 grid grid-cols-3 gap-2 short:hidden" aria-label="Catch stars, candy and gems for 1 point, rainbows for 5, avoid bombs which take 2">
                   <div className="flex flex-col items-center rounded-2xl bg-white/80 py-2">
                     <div className="flex -space-x-3"><ItemArt kind="star" /><ItemArt kind="gem" /></div>
                     <span className="font-display text-lg font-semibold text-mint-600">+1</span>
@@ -435,7 +436,7 @@ export default function PetCatchGamePage() {
           ) : null}
 
           {phase === 'finished' ? (
-            <motion.div key="done" className="absolute inset-0 z-40 grid place-items-center bg-white/50 p-4 backdrop-blur-[3px]" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <motion.div key="done" className="absolute inset-0 z-40 grid place-items-center overflow-y-auto bg-white/50 p-4 backdrop-blur-[3px] short:p-2" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <div className="relative w-full max-w-sm">
                 <Celebration show={starsEarned !== null} burstKey={`end-${starsEarned}`} />
                 <motion.div className="surface p-5 text-center" initial={{ scale: 0.85, y: 20 }} animate={{ scale: 1, y: 0 }} transition={{ type: 'spring', stiffness: 260, damping: 20 }}>
@@ -475,7 +476,7 @@ export default function PetCatchGamePage() {
       </motion.div>
 
       {/* Hold-to-move buttons */}
-      <div className="mt-3 grid grid-cols-2 gap-3">
+      <div className="mt-3 grid grid-cols-2 gap-3 short:hidden">
         {(['left', 'right'] as const).map((side) => (
           <button
             key={side}

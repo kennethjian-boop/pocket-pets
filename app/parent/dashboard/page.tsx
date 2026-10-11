@@ -34,6 +34,7 @@ export default function TodayPage() {
     return { child, state, missions, done, waiting: missions.length - done };
   });
   const totalWaiting = summaries.reduce((s, c) => s + Math.max(0, c.waiting), 0);
+  const needsGoals = summaries.filter((c) => c.missions.length === 0).map((c) => c.child.name);
   const boss = family.boss;
   const hp = boss && boss.maxHp > 0 ? Math.round((boss.currentHp / boss.maxHp) * 100) : 0;
 
@@ -53,7 +54,15 @@ export default function TodayPage() {
     <>
       <ParentHeader
         title="Today"
-        subtitle={family.loaded ? (totalWaiting > 0 ? `${todayLabel()} · ${totalWaiting} goals to check` : `${todayLabel()} · all caught up`) : todayLabel()}
+        subtitle={
+          !family.loaded
+            ? todayLabel()
+            : needsGoals.length
+              ? `${todayLabel()} · pick goals for ${needsGoals.join(' & ')}`
+              : totalWaiting > 0
+                ? `${todayLabel()} · ${totalWaiting} goals to check`
+                : `${todayLabel()} · all caught up`
+        }
       />
       <ParentBody wide>
         <div className="grid gap-4 lg:grid-cols-2">
@@ -120,20 +129,17 @@ export default function TodayPage() {
         </div>
 
         {boss ? (
-          <section className="p-card flex items-center gap-3 p-3 sm:p-4" aria-label="Family Boss">
+          <section className="p-card flex flex-wrap items-center gap-3 p-3 sm:flex-nowrap sm:p-4" aria-label="Family Boss">
             <div className="relative h-16 w-20 shrink-0 overflow-hidden rounded-xl bg-plum-900/90">
               <Image src={boss.bossImage} alt="" fill sizes="96px" className={`object-contain ${boss.isDefeated ? 'grayscale' : ''}`} />
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center justify-between gap-2">
-                <p className="truncate font-display text-lg font-semibold text-ink">{boss.bossName}</p>
-                <span className="shrink-0 text-xs font-extrabold text-ink-faint">{boss.currentHp}/{boss.maxHp} HP</span>
-              </div>
+              <p className="truncate font-display text-lg font-semibold text-ink">{boss.bossName}</p>
               <div className="mt-1 h-2.5 overflow-hidden rounded-full bg-[#f1ecf7]">
                 <div className="h-full rounded-full bg-gradient-to-r from-berry-400 to-honey-300 transition-all duration-700" style={{ width: `${hp}%` }} />
               </div>
               <p className="mt-1 text-xs font-bold text-ink-faint">
-                {boss.isDefeated ? (boss.rewardClaimed ? 'Defeated · prizes delivered' : 'Defeated! Prizes are waiting.') : `${boss.attacks.length} hits this week`}
+                {boss.isDefeated ? (boss.rewardClaimed ? 'Defeated · prizes delivered' : 'Defeated! Prizes are waiting.') : `${boss.currentHp}/${boss.maxHp} HP · ${boss.attacks.length} hits this week`}
               </p>
             </div>
             {boss.isDefeated && !boss.rewardClaimed ? (
@@ -141,7 +147,7 @@ export default function TodayPage() {
                 type="button"
                 onClick={() => void claim()}
                 disabled={claiming}
-                className="min-h-11 shrink-0 rounded-xl bg-mint-500 px-3 text-sm font-extrabold text-white shadow-[0_3px_0_#1c8455] disabled:opacity-60"
+                className="min-h-11 w-full shrink-0 rounded-xl bg-mint-500 px-3 text-sm font-extrabold text-white shadow-[0_3px_0_#1c8455] disabled:opacity-60 sm:w-auto"
               >
                 {claiming ? 'Claiming…' : 'Give prizes'}
               </button>

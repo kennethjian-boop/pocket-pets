@@ -126,8 +126,8 @@ function TopBar() {
   const pet = useActivePet();
   const [menuOpen, setMenuOpen] = useState(false);
   return (
-    <header className="pt-safe sticky top-0 z-30 lg:hidden">
-      <div className="flex items-center justify-between gap-2 border-b border-white/60 bg-paper/75 px-3 py-2 backdrop-blur-md">
+    <header className="pt-safe sticky top-0 z-30 xl:hidden">
+      <div className="flex items-center justify-between gap-2 border-b border-white/60 bg-paper/75 px-3 py-2 backdrop-blur-md short:py-1 short:pl-[max(0.75rem,env(safe-area-inset-left))] short:pr-[max(0.75rem,env(safe-area-inset-right))]">
         <button
           type="button"
           onClick={() => setMenuOpen(true)}
@@ -149,7 +149,7 @@ function TopBar() {
 function BottomNav({ childId }: { childId: string }) {
   const items = useNavItems(childId);
   return (
-    <nav aria-label="Pocket Pets" className="sticky bottom-0 z-30 lg:hidden">
+    <nav aria-label="Pocket Pets" className="sticky bottom-0 z-30 xl:hidden">
       <div className="pb-safe border-t border-white/70 bg-paper/85 shadow-[0_-8px_24px_-16px_rgb(58_42_77/0.35)] backdrop-blur-md">
         <ul className="mx-auto grid max-w-xl grid-cols-4 px-2 pt-1.5">
           {items.map((item) => (
@@ -157,11 +157,11 @@ function BottomNav({ childId }: { childId: string }) {
               <Link
                 href={item.href}
                 aria-current={item.active ? 'page' : undefined}
-                className="group flex min-h-[64px] flex-col items-center justify-center gap-0.5 rounded-2xl pb-1.5"
+                className="group flex min-h-[64px] flex-col items-center justify-center gap-0.5 rounded-2xl pb-1.5 short:min-h-[46px] short:flex-row short:gap-2 short:pb-0"
               >
                 <span
-                  className={`grid h-11 w-14 place-items-center rounded-2xl transition-all duration-200 group-active:scale-90 ${
-                    item.active ? '-translate-y-1 bg-white shadow-[0_4px_0_rgb(58_42_77/0.08),0_8px_16px_-8px_rgb(58_42_77/0.4)]' : ''
+                  className={`grid h-11 w-14 place-items-center rounded-2xl transition-all duration-200 group-active:scale-90 short:h-9 short:w-10 ${
+                    item.active ? '-translate-y-1 short:translate-y-0 bg-white shadow-[0_4px_0_rgb(58_42_77/0.08),0_8px_16px_-8px_rgb(58_42_77/0.4)]' : ''
                   }`}
                 >
                   <Icon name={item.icon} size={item.active ? 34 : 30} />
@@ -184,7 +184,7 @@ function Sidebar({ childId }: { childId: string }) {
   const { child } = useChildState();
   const pet = useActivePet();
   return (
-    <aside className="sticky top-0 hidden h-dvh w-72 shrink-0 flex-col gap-5 overflow-y-auto border-r border-white/60 bg-paper/70 px-4 py-5 backdrop-blur-md lg:flex">
+    <aside className="sticky top-0 hidden h-dvh w-72 shrink-0 flex-col gap-5 overflow-y-auto border-r border-white/60 bg-paper/70 px-4 py-5 backdrop-blur-md xl:flex">
       <Link href="/" className="flex items-center gap-2 px-2 text-plum-600">
         <Icon name="paw" size={30} />
         <span className="font-display text-2xl font-semibold text-ink">
@@ -252,7 +252,7 @@ const TOAST_STYLE: Record<ToastTone, { bg: string; icon: IconName }> = {
 function ToastLayer() {
   const { toast } = useChildState();
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(96px+env(safe-area-inset-bottom))] z-40 flex justify-center px-4 lg:bottom-8 lg:left-72">
+    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(96px+env(safe-area-inset-bottom))] z-40 flex justify-center px-4 xl:bottom-8 xl:left-72">
       <AnimatePresence>
         {toast ? (
           <motion.div
@@ -288,7 +288,7 @@ function Frame({ childId, children }: { childId: string; children: ReactNode }) 
   const searchParams = useSearchParams();
   const showDebugSync = searchParams.get('debugSync') === '1';
   return (
-    <div className="relative min-h-dvh lg:flex">
+    <div className="relative min-h-dvh xl:flex">
       <SceneBackdrop variant={scene === 'auto' ? phase : scene} />
       <Sidebar childId={childId} />
       <div className="flex min-h-dvh min-w-0 flex-1 flex-col">

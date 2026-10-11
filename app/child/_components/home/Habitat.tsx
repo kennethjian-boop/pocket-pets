@@ -85,7 +85,7 @@ export function Habitat({
   return (
     <section
       aria-label={`${petName}'s home`}
-      className="relative isolate h-[clamp(330px,52dvh,440px)] overflow-hidden rounded-[2rem] border-[3px] border-white shadow-pop sm:h-[440px] lg:h-[min(560px,62dvh)]"
+      className="relative isolate h-[clamp(330px,52dvh,440px)] short:h-[calc(100dvh-112px)] short:min-h-[230px] overflow-hidden rounded-[2rem] border-[3px] border-white shadow-pop sm:h-[440px] lg:h-[min(560px,62dvh)]"
     >
       <Sky variant={phase} className="absolute inset-0" />
       {night ? (
@@ -133,7 +133,7 @@ export function Habitat({
       <AnimatePresence mode="wait">
         <motion.div
           key={reaction ? `r-${reaction.id}` : `s-${bubble}`}
-          className={`absolute left-1/2 top-[26%] z-20 max-w-[78%] -translate-x-1/2 rounded-2xl px-3.5 py-2 text-center font-display text-base font-semibold shadow-soft sm:top-[22%] sm:text-lg ${
+          className={`absolute left-1/2 top-[22%] z-20 max-w-[78%] -translate-x-1/2 rounded-2xl px-3.5 py-2 text-center font-display text-base font-semibold shadow-soft sm:top-[20%] sm:text-lg short:left-auto short:right-3 short:top-3 short:max-w-[48%] short:translate-x-0 ${
             reaction?.blocked ? 'bg-white/90 text-ink-soft' : 'bg-white text-ink'
           }`}
           initial={{ opacity: 0, y: 8, scale: 0.9 }}
@@ -149,7 +149,7 @@ export function Habitat({
 
       {/* The pet */}
       <motion.div
-        className="absolute bottom-[10%] left-1/2 z-10 h-[56%] w-[70%] max-w-[360px] -translate-x-1/2"
+        className="absolute bottom-[10%] left-1/2 z-10 h-[52%] w-[68%] max-w-[360px] -translate-x-1/2"
         animate={reactionAnimation}
         transition={{ duration: reaction?.blocked ? 0.35 : 0.65, ease: 'easeOut' }}
       >
@@ -169,13 +169,13 @@ export function Habitat({
         <motion.button
           type="button"
           onClick={onPoopTap}
-          className="absolute bottom-[11%] right-[10%] z-20 grid h-14 w-14 place-items-center rounded-full bg-white/70 shadow-soft"
+          className="absolute bottom-[11%] right-[3%] z-20 grid h-12 w-12 place-items-center rounded-full bg-white/70 shadow-soft"
           initial={{ scale: 0 }}
           animate={{ scale: 1, rotate: [0, -6, 6, 0] }}
           transition={{ rotate: { duration: 1.6, repeat: Infinity, repeatDelay: 1.4 } }}
           aria-label="Poop to clean — tap to clean"
         >
-          <Icon name="poop" size={40} />
+          <Icon name="poop" size={36} />
         </motion.button>
       ) : null}
       {overlay}
