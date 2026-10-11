@@ -473,8 +473,8 @@ export default function PetCatchGamePage() {
                     >
                       Play again · {PET_CATCH_HEART_COST} <Icon name="heart" size={22} />
                     </button>
-                    <Link href={`/child/${child.id}`} className="btn-chunky btn-paper min-h-12 text-base">
-                      <Icon name="home" size={22} /> Back home
+                    <Link href={`/child/${child.id}/play`} className="btn-chunky btn-paper min-h-12 text-base">
+                      <Icon name="play" size={22} /> Play Room
                     </Link>
                   </div>
                 </motion.div>

@@ -45,6 +45,9 @@ tested on PGlite (`tests/sql-migrations.test.ts`). It is **not applied automatic
 - `app/child/[childId]/layout.tsx` mounts one shared shell (`ChildStateProvider` + top bar,
   bottom tab bar under 1280px wide, sidebar at ≥1280px). Pages read live state via
   `useChildState()`. State refreshes on focus and every 30 s.
+- The Play tab opens the **Play Room** (`/child/[childId]/play`) with Pet Catch and Pet Adventure Run
+  (`/adventure-run`). Adventure Run's physics, fairness and scoring live in the pure, unit-tested
+  `lib/adventure-run-rules.ts`; QA-only `?qaSeed`/`?qaSeconds` are ignored in production builds.
 - Child navigation uses a **docked** bottom tab bar (it takes its own space in the layout and
   never covers content). This supersedes the older "no bottom nav" note, which was about a
   *floating* bar that hid Shop/Boss content.

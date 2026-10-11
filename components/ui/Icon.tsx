@@ -46,7 +46,11 @@ export type IconName =
   | 'book'
   | 'broom'
   | 'smile'
-  | 'cloud';
+  | 'cloud'
+  | 'pause'
+  | 'resume'
+  | 'jump'
+  | 'run';
 
 const INK = '#3a2a4d';
 const OUT = { stroke: INK, strokeWidth: 2.4, strokeLinejoin: 'round' as const, strokeLinecap: 'round' as const };
@@ -273,6 +277,21 @@ function paths(name: IconName) {
     case 'cloud':
       return (
         <path d="M14 37c-5.5 0-8-7-3.5-10-1-6 5-10 10-8 2-5 9-7 13-3 5-1 9 3 8 8 4 1 5 7 0 13z" fill="#d9c8ff" {...OUT} />
+      );
+    case 'pause':
+      return <path d="M17 12v24M31 12v24" {...LINE} strokeWidth={5} />;
+    case 'resume':
+      return <path d="M16 11l22 13-22 13z" fill="currentColor" stroke="currentColor" strokeWidth={2.5} strokeLinejoin="round" />;
+    case 'jump':
+      return <path d="M24 38V12M13 22l11-11 11 11" {...LINE} strokeWidth={4} />;
+    case 'run':
+      return (
+        <>
+          <path d="M6 38c6-10 14-14 22-12s12 4 14 0" fill="none" stroke="#45c286" strokeWidth={4} strokeLinecap="round" />
+          <circle cx="30" cy="17" r="8" fill="#ffd25e" {...OUT} />
+          <path d="M10 27h8M7 21h7" stroke={INK} strokeWidth={2.4} strokeLinecap="round" />
+          <path d="M33 9l3-4M38 13l4-2" stroke="#fbbf3a" strokeWidth={2.4} strokeLinecap="round" />
+        </>
       );
     case 'clock':
       return (
