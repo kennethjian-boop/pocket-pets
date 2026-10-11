@@ -1,599 +1,500 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import Image from 'next/image';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { AnimatePresence, motion } from 'framer-motion';
-import { ChildPageFrame } from '@/app/child/_components/ChildSidebar';
-import { getChild, PET_ROSTER } from '@/lib/mock-data';
+import { AnimatePresence, motion, useAnimationControls } from 'framer-motion';
+import { Icon } from '@/components/ui/Icon';
+import { PetSprite } from '@/components/child/PetSprite';
+import { Celebration } from '@/components/child/Celebration';
+import { useChildState } from '@/app/child/_components/ChildStateProvider';
+import { PET_ROSTER } from '@/lib/mock-data';
+import type { PetType } from '@/lib/pet-skins';
+import { awardGameStars, spendHearts } from '@/lib/child-economy';
 import {
-  clampStars,
-  hydrateChildDashboardStateFromSupabase,
-  mergeWithDefaultChildState,
-  readChildDashboardState,
-  saveChildDashboardState,
-} from '@/lib/mission-state';
-import { resolvePetAvatarImage } from '@/lib/pet-avatar-image';
-import { type PetType } from '@/lib/pet-skins';
+  PET_CATCH_DURATION_SECONDS,
+  PET_CATCH_HEART_COST,
+  getPetCatchPhase,
+  getPetCatchStarsEarned,
+} from '@/lib/pet-catch-rules';
 
-type FallingItem = {
-  id: number;
-  x: number;
-  y: number;
-  emoji: string;
-  speed: number;
-  points: number;
-  type: 'common' | 'rare' | 'bomb';
-};
+type ItemKind = 'star' | 'candy' | 'gem' | 'rainbow' | 'bomb';
+type Item = { id: number; kind: ItemKind; x: number; y: number; speed: number; points: number; spin: number };
+type Pop = { id: number; x: number; y: number; text: string; good: boolean };
+type Phase = 'ready' | 'paying' | 'countdown' | 'playing' | 'finished';
 
-type ScorePop = {
-  id: number;
-  x: number;
-  y: number;
-  text: string;
-  type: 'good' | 'bad';
-};
+// The original loop advanced items by `speed` (% of arena height) every 35ms.
+const TICK_MS = 35;
+const PER_SECOND = 1000 / TICK_MS;
+const PET_SPEED_PER_SECOND = 4 * PER_SECOND; // keyboard/button speed, % per second
+const PET_MIN = 7;
+const PET_MAX = 93;
 
-const GAME_DURATION = 60;
-const HEART_COST = 2;
-
-const COMMON_ITEMS = [
-  { emoji: '⭐', points: 1 },
-  { emoji: '🍬', points: 1 },
-  { emoji: '💎', points: 1 },
-];
-
-function getStarsEarned(score: number) {
-  if (score > 75) return 20;
-  if (score > 50) return 15;
-  if (score > 25) return 10;
-  return 5;
+function createItem(id: number): Item {
+  const roll = Math.random();
+  const x = 8 + Math.random() * 84;
+  const spin = (Math.random() - 0.5) * 120;
+  if (roll < 0.1) return { id, kind: 'bomb', x, y: -8, speed: 1.4 + Math.random() * 1.2, points: -2, spin };
+  if (roll < 0.16) return { id, kind: 'rainbow', x, y: -8, speed: 1 + Math.random() * 0.8, points: 5, spin: 0 };
+  const kinds: ItemKind[] = ['star', 'candy', 'gem'];
+  return { id, kind: kinds[Math.floor(Math.random() * 3)], x, y: -8, speed: 1.2 + Math.random() * 1.2, points: 1, spin };
 }
 
-function createItem(id: number): FallingItem {
-  const roll = Math.random();
-
-  if (roll < 0.1) {
-    return {
-      id,
-      x: 8 + Math.random() * 84,
-      y: -8,
-      emoji: '💣',
-      speed: 1.4 + Math.random() * 1.2,
-      points: -2,
-      type: 'bomb',
-    };
+function ItemArt({ kind }: { kind: ItemKind }) {
+  const ink = { stroke: '#3a2a4d', strokeWidth: 2.4, strokeLinejoin: 'round' as const };
+  switch (kind) {
+    case 'star':
+      return <Icon name="star" size={46} />;
+    case 'candy':
+      return (
+        <svg viewBox="0 0 48 48" width={46} height={46} aria-hidden="true">
+          <path d="M8 18l7 6-7 6zM40 18l-7 6 7 6z" fill="#ffb8cb" {...ink} />
+          <circle cx="24" cy="24" r="10" fill="#f8678f" {...ink} />
+          <path d="M18 20c3-3 9-3 12 1M17 27c4 3 10 3 14-1" fill="none" stroke="#fff" strokeWidth={2.2} strokeLinecap="round" />
+        </svg>
+      );
+    case 'gem':
+      return (
+        <svg viewBox="0 0 48 48" width={46} height={46} aria-hidden="true">
+          <path d="M14 10h20l8 10-18 20L6 20z" fill="#7ec6fb" {...ink} />
+          <path d="M6 20h36M18 10l-4 10 10 20 10-20-4-10" fill="none" stroke="#3a2a4d" strokeWidth={1.8} strokeLinejoin="round" />
+          <path d="M16 14l-2 4" stroke="#fff" strokeWidth={2.4} strokeLinecap="round" />
+        </svg>
+      );
+    case 'rainbow':
+      return (
+        <svg viewBox="0 0 64 48" width={66} height={50} aria-hidden="true">
+          <path d="M6 40a26 26 0 0152 0" fill="none" stroke="#f8678f" strokeWidth={7} />
+          <path d="M13 40a19 19 0 0138 0" fill="none" stroke="#fbbf3a" strokeWidth={7} />
+          <path d="M20 40a12 12 0 0124 0" fill="none" stroke="#45c286" strokeWidth={7} />
+          <path d="M27 40a5 5 0 0110 0" fill="none" stroke="#4eabf2" strokeWidth={6} />
+          <ellipse cx="9" cy="41" rx="8" ry="5" fill="#fff" {...ink} />
+          <ellipse cx="55" cy="41" rx="8" ry="5" fill="#fff" {...ink} />
+        </svg>
+      );
+    case 'bomb':
+      return (
+        <svg viewBox="0 0 48 48" width={46} height={46} aria-hidden="true">
+          <circle cx="22" cy="28" r="14" fill="#4b3a66" {...ink} />
+          <path d="M30 16l4-4" stroke="#3a2a4d" strokeWidth={4} strokeLinecap="round" />
+          <path d="M35 11c2-3 5-3 7-1" fill="none" stroke="#c98204" strokeWidth={2.4} strokeLinecap="round" />
+          <circle cx="42" cy="8" r="3" fill="#fbbf3a" />
+          <path d="M15 23c2-3 5-4 8-4" fill="none" stroke="#9c8cab" strokeWidth={2.4} strokeLinecap="round" />
+        </svg>
+      );
   }
-
-  if (roll < 0.16) {
-    return {
-      id,
-      x: 8 + Math.random() * 84,
-      y: -8,
-      emoji: '🌈',
-      speed: 1 + Math.random() * 0.8,
-      points: 5,
-      type: 'rare',
-    };
-  }
-
-  const item = COMMON_ITEMS[Math.floor(Math.random() * COMMON_ITEMS.length)];
-
-  return {
-    id,
-    x: 8 + Math.random() * 84,
-    y: -8,
-    emoji: item.emoji,
-    speed: 1.2 + Math.random() * 1.2,
-    points: item.points,
-    type: 'common',
-  };
 }
 
 export default function PetCatchGamePage() {
-  const params = useParams();
-  const childId = params.childId as string;
-  const child = getChild(childId);
+  const { child, state, hasSnapshot, applyState, notify } = useChildState();
+  const pet = state.activePetId as PetType;
+  const petName = PET_ROSTER.find((p) => p.id === pet)?.name ?? 'Your pet';
+  const skinId = state.activeSkins[pet] ?? null;
 
-  const [petX, setPetX] = useState(50);
-  const [items, setItems] = useState<FallingItem[]>([]);
-  const [scorePops, setScorePops] = useState<ScorePop[]>([]);
+  const [phase, setPhase] = useState<Phase>('ready');
+  const [countdown, setCountdown] = useState(3);
+  const [items, setItems] = useState<Item[]>([]);
+  const [pops, setPops] = useState<Pop[]>([]);
   const [score, setScore] = useState(0);
-  const [timeLeft, setTimeLeft] = useState(GAME_DURATION);
-  const [roundStarted, setRoundStarted] = useState(false);
-  const [gameOver, setGameOver] = useState(false);
-  const [ouch, setOuch] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(PET_CATCH_DURATION_SECONDS);
+  const [petX, setPetX] = useState(50);
+  const [facing, setFacing] = useState<1 | -1>(1);
+  const [starsEarned, setStarsEarned] = useState<number | null>(null);
+  const [rewardError, setRewardError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [starsEarned, setStarsEarned] = useState(0);
-  const [dashboardState, setDashboardState] = useState(() =>
-    child ? mergeWithDefaultChildState(child, null) : null
-  );
 
-  const keys = useRef({ left: false, right: false });
+  const arenaRef = useRef<HTMLDivElement>(null);
+  const shake = useAnimationControls();
+  const itemsRef = useRef<Item[]>([]);
   const petXRef = useRef(50);
   const scoreRef = useRef(0);
+  const elapsedRef = useRef(0);
   const idRef = useRef(1);
-  const popIdRef = useRef(1);
-  const rewardGrantedRef = useRef(false);
-  const arenaRef = useRef<HTMLDivElement>(null);
-  const isDraggingRef = useRef(false);
-  const dragStartClientXRef = useRef(0);
-  const dragStartPetXRef = useRef(50);
+  const keys = useRef({ left: false, right: false });
+  const drag = useRef<{ active: boolean; startX: number; startPet: number }>({ active: false, startX: 0, startPet: 50 });
+  const rewardGranted = useRef(false);
+  const paying = useRef(false);
 
-  const updatePetFromDrag = (clientX: number) => {
-    if (!arenaRef.current) return;
-    const rect = arenaRef.current.getBoundingClientRect();
-    const deltaPct = ((clientX - dragStartClientXRef.current) / rect.width) * 100;
-    const xPct = dragStartPetXRef.current + deltaPct;
-    const clamped = Math.max(7, Math.min(93, xPct));
-    petXRef.current = clamped;
-    setPetX(clamped);
-  };
+  const canPlay = state.hearts >= PET_CATCH_HEART_COST;
 
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!roundStarted || gameOver) return;
-    e.preventDefault();
-    isDraggingRef.current = true;
-    dragStartClientXRef.current = e.clientX;
-    dragStartPetXRef.current = petXRef.current;
-    e.currentTarget.setPointerCapture(e.pointerId);
-  };
+  const finishRound = useCallback(async () => {
+    setPhase('finished');
+    itemsRef.current = [];
+    setItems([]);
+    keys.current = { left: false, right: false };
+    if (rewardGranted.current) return;
+    rewardGranted.current = true;
+    const earned = getPetCatchStarsEarned(scoreRef.current);
+    setStarsEarned(earned);
+    const result = await awardGameStars(child, earned);
+    applyState(result.state);
+    if (!result.ok) setRewardError("We couldn't save your stars just now. Show a grown-up this screen.");
+  }, [applyState, child]);
 
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isDraggingRef.current || !roundStarted || gameOver) return;
-    e.preventDefault();
-    updatePetFromDrag(e.clientX);
-  };
+  // ── Game loop ──────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (phase !== 'playing') return;
+    let frame = 0;
+    let last = performance.now();
 
-  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (isDraggingRef.current) {
-      e.preventDefault();
+    const step = (time: number) => {
+      // Clamp dt so a backgrounded tab doesn't teleport everything.
+      const dt = Math.min(0.05, (time - last) / 1000);
+      last = time;
+      if (document.visibilityState !== 'visible') {
+        frame = requestAnimationFrame(step);
+        return;
+      }
+      elapsedRef.current += dt;
+      const elapsed = elapsedRef.current;
+      const { speedMultiplier, spawnChance, maxItems } = getPetCatchPhase(Math.floor(elapsed));
+
+      // Pet movement from keys / hold buttons.
+      const dir = (keys.current.right ? 1 : 0) - (keys.current.left ? 1 : 0);
+      if (dir !== 0) {
+        petXRef.current = Math.max(PET_MIN, Math.min(PET_MAX, petXRef.current + dir * PET_SPEED_PER_SECOND * dt));
+        setFacing(dir > 0 ? 1 : -1);
+      }
+
+      let next = itemsRef.current
+        .map((item) => ({ ...item, y: item.y + item.speed * speedMultiplier * PER_SECOND * dt }))
+        .filter((item) => item.y < 110);
+      // Same expected spawn rate as the original per-tick chance.
+      if (next.length < maxItems && Math.random() < 1 - Math.pow(1 - spawnChance, dt * PER_SECOND)) {
+        next.push(createItem(idRef.current++));
+      }
+
+      const caught: Item[] = [];
+      next = next.filter((item) => {
+        const hit = Math.abs(item.x - petXRef.current) < 8 && item.y > 68 && item.y < 88;
+        if (hit) caught.push(item);
+        return !hit;
+      });
+
+      if (caught.length > 0) {
+        const points = caught.reduce((s, i) => s + i.points, 0);
+        scoreRef.current = Math.max(0, scoreRef.current + points);
+        setScore(scoreRef.current);
+        if (caught.some((i) => i.kind === 'bomb')) {
+          void shake.start({ x: [0, -10, 10, -6, 6, 0], transition: { duration: 0.3 } });
+          navigator.vibrate?.(60);
+        }
+        const newPops = caught.map((i) => ({ id: i.id, x: i.x, y: i.y, text: i.points > 0 ? `+${i.points}` : `${i.points}`, good: i.points > 0 }));
+        setPops((p) => [...p.slice(-8), ...newPops]);
+      }
+
+      itemsRef.current = next;
+      setItems(next);
+      setPetX(petXRef.current);
+
+      const remaining = Math.max(0, Math.ceil(PET_CATCH_DURATION_SECONDS - elapsed));
+      setTimeLeft(remaining);
+      if (elapsed >= PET_CATCH_DURATION_SECONDS) {
+        void finishRound();
+        return;
+      }
+      frame = requestAnimationFrame(step);
+    };
+    frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+  }, [phase, finishRound, shake]);
+
+  useEffect(() => {
+    if (pops.length === 0) return;
+    const t = window.setTimeout(() => setPops((p) => p.slice(1)), 700);
+    return () => window.clearTimeout(t);
+  }, [pops]);
+
+  // Countdown before the round.
+  useEffect(() => {
+    if (phase !== 'countdown') return;
+    if (countdown <= 0) {
+      const t = window.setTimeout(() => setPhase('playing'), 0);
+      return () => window.clearTimeout(t);
     }
-    isDraggingRef.current = false;
-  };
+    const t = window.setTimeout(() => setCountdown((c) => c - 1), 750);
+    return () => window.clearTimeout(t);
+  }, [phase, countdown]);
 
+  // Keyboard controls.
   useEffect(() => {
-    if (!child) return;
-
-    const syncState = () => {
-      setDashboardState(mergeWithDefaultChildState(child, readChildDashboardState(childId)));
+    const down = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') keys.current.left = true;
+      if (e.key === 'ArrowRight') keys.current.right = true;
     };
-
-    syncState();
-    void hydrateChildDashboardStateFromSupabase(childId, child).then(setDashboardState);
-    const refreshTimer = window.setInterval(syncState, 1000);
-
-    return () => window.clearInterval(refreshTimer);
-  }, [child, childId]);
-
-  useEffect(() => {
-    const down = (event: KeyboardEvent) => {
-      if (!roundStarted || gameOver) return;
-      if (event.key === 'ArrowLeft') keys.current.left = true;
-      if (event.key === 'ArrowRight') keys.current.right = true;
+    const up = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') keys.current.left = false;
+      if (e.key === 'ArrowRight') keys.current.right = false;
     };
-
-    const up = (event: KeyboardEvent) => {
-      if (event.key === 'ArrowLeft') keys.current.left = false;
-      if (event.key === 'ArrowRight') keys.current.right = false;
-    };
-
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
-
     return () => {
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
     };
-  }, [child, childId, gameOver, roundStarted]);
+  }, []);
 
-  useEffect(() => {
-    if (!roundStarted || gameOver) return;
-
-    const timer = window.setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          if (!rewardGrantedRef.current) {
-            rewardGrantedRef.current = true;
-            const earned = getStarsEarned(scoreRef.current);
-            setStarsEarned(earned);
-
-            if (child && earned > 0) {
-              const current = mergeWithDefaultChildState(child, readChildDashboardState(childId));
-              const nextState = saveChildDashboardState(childId, child, {
-                stars: clampStars(current.stars + earned),
-              });
-              setDashboardState(nextState);
-            }
-          }
-
-          setGameOver(true);
-          setItems([]);
-          keys.current.left = false;
-          keys.current.right = false;
-          return 0;
-        }
-
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => window.clearInterval(timer);
-  }, [child, childId, gameOver, roundStarted]);
-
-  useEffect(() => {
-    if (!roundStarted || gameOver) return;
-
-    const loop = window.setInterval(() => {
-      const elapsed = GAME_DURATION - timeLeft;
-      const speedMultiplier = elapsed <= 30 ? 0.5 : elapsed <= 45 ? 0.75 : 1.2;
-      const spawnChance = elapsed <= 30 ? 0.045 : elapsed <= 45 ? 0.075 : 0.105;
-      const maxItems = elapsed <= 30 ? 3 : elapsed <= 45 ? 5 : 7;
-
-      setPetX((prev) => {
-        let next = prev;
-        if (keys.current.left) next -= 4;
-        if (keys.current.right) next += 4;
-        const clamped = Math.max(7, Math.min(93, next));
-        petXRef.current = clamped;
-        return clamped;
-      });
-
-      setItems((prev) => {
-        let updated = prev
-          .map((item) => ({ ...item, y: item.y + item.speed * speedMultiplier }))
-          .filter((item) => item.y < 110);
-
-        if (Math.random() < spawnChance && updated.length < maxItems) {
-          updated.push(createItem(idRef.current++));
-        }
-
-        const caught: FallingItem[] = [];
-
-        updated = updated.filter((item) => {
-          const hitX = Math.abs(item.x - petXRef.current) < 8;
-          const hitY = item.y > 68 && item.y < 88;
-
-          if (hitX && hitY) {
-            caught.push(item);
-            return false;
-          }
-
-          return true;
-        });
-
-        if (caught.length > 0) {
-          const totalPoints = caught.reduce((sum, item) => sum + item.points, 0);
-          setScore((prevScore) => {
-            const nextScore = Math.max(0, prevScore + totalPoints);
-            scoreRef.current = nextScore;
-            return nextScore;
-          });
-
-          if (caught.some((item) => item.type === 'bomb')) {
-            setOuch(true);
-            window.setTimeout(() => setOuch(false), 280);
-          }
-
-          const newPops = caught.map((item) => ({
-            id: popIdRef.current++,
-            x: item.x,
-            y: item.y,
-            text: item.points > 0 ? `+${item.points}` : `${item.points}`,
-            type: item.points > 0 ? ('good' as const) : ('bad' as const),
-          }));
-          const newPopIds = new Set(newPops.map((pop) => pop.id));
-
-          setScorePops((prevPops) => [...prevPops, ...newPops]);
-
-          window.setTimeout(() => {
-            setScorePops((prevPops) =>
-              prevPops.filter((pop) => !newPopIds.has(pop.id))
-            );
-          }, 650);
-        }
-
-        return updated;
-      });
-    }, 35);
-
-    return () => window.clearInterval(loop);
-  }, [gameOver, roundStarted, timeLeft]);
-
-  const avatar = useMemo(() => {
-    if (!dashboardState) {
-      return resolvePetAvatarImage({
-        pet: 'bubbo',
-        mood: 'happy',
-        petName: 'Pocket Pets',
-      });
-    }
-
-    const petType = dashboardState.activePetId as PetType;
-    const activeSkinId = dashboardState.activeSkins[petType];
-    const rosterPet = PET_ROSTER.find((pet) => pet.id === petType);
-
-    return resolvePetAvatarImage({
-      pet: petType,
-      mood: 'happy',
-      petName: rosterPet?.name ?? 'Pet',
-      activeSkinId,
-    });
-  }, [dashboardState]);
-
-  if (!child || !dashboardState) {
-    return <div>Child not found</div>;
-  }
-
-  const canPlay = dashboardState.hearts >= HEART_COST;
-
-  const startRound = () => {
-    const current = mergeWithDefaultChildState(child, readChildDashboardState(childId));
-
-    if (current.hearts < HEART_COST) {
-      setDashboardState(current);
-      setMessage('You need 2 hearts to play Pet Catch. Ask a parent or earn more hearts first.');
+  const startRound = async () => {
+    if (paying.current) return;
+    paying.current = true;
+    setMessage(null);
+    setPhase('paying');
+    const result = await spendHearts(child, PET_CATCH_HEART_COST);
+    applyState(result.state);
+    paying.current = false;
+    if (!result.ok) {
+      setPhase('ready');
+      setMessage(result.code === 'insufficient' ? 'You need 2 hearts to play. Hearts come from grown-up rewards and boss victories!' : result.message);
       return;
     }
-
-    const nextState = saveChildDashboardState(childId, child, {
-      hearts: current.hearts - HEART_COST,
-    });
-
-    setDashboardState(nextState);
-    setMessage(null);
-    setScore(0);
+    itemsRef.current = [];
     scoreRef.current = 0;
-    setStarsEarned(0);
-    setItems([]);
-    setScorePops([]);
-    setTimeLeft(GAME_DURATION);
-    setGameOver(false);
-    setRoundStarted(true);
-    setOuch(false);
-    setPetX(50);
+    elapsedRef.current = 0;
     petXRef.current = 50;
-    rewardGrantedRef.current = false;
-    keys.current.left = false;
-    keys.current.right = false;
+    rewardGranted.current = false;
+    setItems([]);
+    setPops([]);
+    setScore(0);
+    setPetX(50);
+    setTimeLeft(PET_CATCH_DURATION_SECONDS);
+    setStarsEarned(null);
+    setRewardError(null);
+    setCountdown(3);
+    setPhase('countdown');
   };
 
-  const setTouch = (side: 'left' | 'right', active: boolean) => {
-    if (!roundStarted || gameOver) return;
+  // ── Drag controls ─────────────────────────────────────────────────────────
+  const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (phase !== 'playing') return;
+    drag.current = { active: true, startX: e.clientX, startPet: petXRef.current };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!drag.current.active || phase !== 'playing' || !arenaRef.current) return;
+    const width = arenaRef.current.getBoundingClientRect().width;
+    const next = Math.max(PET_MIN, Math.min(PET_MAX, drag.current.startPet + ((e.clientX - drag.current.startX) / width) * 100));
+    if (Math.abs(next - petXRef.current) > 0.3) setFacing(next > petXRef.current ? 1 : -1);
+    petXRef.current = next;
+    setPetX(next);
+  };
+  const endDrag = () => {
+    drag.current.active = false;
+  };
+
+  const hold = (side: 'left' | 'right', active: boolean) => {
     keys.current[side] = active;
   };
 
+  const timeFraction = timeLeft / PET_CATCH_DURATION_SECONDS;
+
   return (
-    <ChildPageFrame childId={childId}>
-      <div className="min-h-screen bg-gradient-to-b from-amber-50 via-rose-50 to-sky-100 px-4 py-6 sm:px-6">
-        <div className="mx-auto w-full max-w-4xl">
-          <div className="mb-4 text-center">
-            <p className="text-xs font-extrabold uppercase tracking-[0.24em] text-pink-500">
-              2 hearts to play
-            </p>
-            <h1 className="mt-1 text-4xl font-black text-slate-800">Pet Catch Game</h1>
-            <p className="mx-auto mt-2 max-w-2xl text-sm font-semibold text-slate-500 sm:text-base">
-              One minute challenge. Catch ⭐ 🍬 💎 for +1, 🌈 for +5, and dodge 💣 for -2.
-            </p>
+    <div className="mx-auto flex w-full max-w-3xl flex-col px-3 pb-3 pt-3 sm:px-6 lg:py-8">
+      <motion.div
+        ref={arenaRef}
+        data-pet-catch-arena
+        className="relative h-[max(400px,calc(100dvh-230px))] touch-none select-none overflow-hidden rounded-[2rem] border-[3px] border-white shadow-pop sm:h-[min(640px,calc(100dvh-220px))] lg:h-[min(660px,calc(100dvh-140px))]"
+        animate={shake}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onLostPointerCapture={endDrag}
+      >
+        <div className="absolute inset-0 bg-gradient-to-b from-sky-200 via-plum-50 to-cream" aria-hidden="true" />
+        <svg className="absolute inset-x-0 bottom-0 h-[24%] w-full" viewBox="0 0 400 100" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M0 40 C 80 10, 160 20, 230 36 S 350 20, 400 30 L400 100 L0 100 Z" fill="#c6ead0" />
+          <path d="M0 62 C 90 40, 180 50, 250 60 S 360 48, 400 56 L400 100 L0 100 Z" fill="#a7dcb6" />
+        </svg>
+
+        {/* HUD */}
+        <div className="absolute inset-x-3 top-3 z-30 flex items-start justify-between gap-2">
+          <div className="flex items-center gap-1.5 rounded-2xl bg-white/90 py-1.5 pl-2 pr-3.5 shadow-soft">
+            <Icon name="star" size={30} />
+            <span className="font-display text-3xl font-semibold tabular-nums text-ink" aria-label={`Score ${score}`}>
+              {score}
+            </span>
           </div>
-
-          <motion.div
-            ref={arenaRef}
-            data-pet-catch-arena
-            className="relative h-[620px] max-h-[72vh] touch-none overflow-hidden rounded-[32px] border border-white/70 bg-white/70 shadow-2xl backdrop-blur sm:h-[650px] sm:rounded-[40px]"
-            animate={ouch ? { x: [-8, 8, -5, 5, 0] } : { x: 0 }}
-            transition={{ duration: 0.25 }}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={handlePointerUp}
-            onLostPointerCapture={handlePointerUp}
-          >
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_40%_20%,rgba(186,230,253,0.6),transparent_28%),radial-gradient(circle_at_50%_80%,rgba(255,220,180,0.55),transparent_38%)]" />
-            {ouch && <div className="pointer-events-none absolute inset-0 z-20 bg-rose-200/25" />}
-            <div className="absolute left-12 top-28 h-14 w-32 rounded-full bg-white/70 blur-[1px]" />
-            <div className="absolute right-16 top-36 h-12 w-36 rounded-full bg-white/70 blur-[1px]" />
-            <div className="absolute bottom-0 left-0 right-0 h-28 bg-gradient-to-t from-emerald-100/80 to-transparent" />
-
-            <div className="absolute left-4 top-4 z-30 rounded-3xl border border-white bg-white/85 px-4 py-3 shadow-lg sm:left-5 sm:top-5 sm:px-5 sm:py-4">
-              <div className="text-xs font-bold uppercase text-slate-400">Score</div>
-              <div className="text-3xl font-black text-slate-800">{score}</div>
-            </div>
-
-            <div className="absolute right-4 top-4 z-30 rounded-3xl border border-white bg-white/85 px-4 py-3 text-right shadow-lg sm:right-5 sm:top-5 sm:px-5 sm:py-4">
-              <div className="text-xs font-bold uppercase text-slate-400">Time</div>
-              <div className="text-3xl font-black text-slate-800">{timeLeft}s</div>
-            </div>
-
-            <div className="absolute left-1/2 top-5 z-30 hidden -translate-x-1/2 gap-2 rounded-3xl border border-white bg-white/75 px-4 py-3 text-sm font-bold text-slate-600 shadow md:flex">
-              <span>⭐🍬💎 +1</span>
-              <span>🌈 +5</span>
-              <span>💣 -2</span>
-            </div>
-
-            <AnimatePresence>
-              {items.map((item) => (
-                <motion.div
-                  key={item.id}
-                  className={`absolute z-10 select-none drop-shadow-sm ${
-                    item.type === 'rare' ? 'text-6xl' : 'text-5xl'
-                  }`}
-                  style={{
-                    left: `${item.x}%`,
-                    top: `${item.y}%`,
-                    transform: 'translate(-50%, -50%)',
-                  }}
-                  animate={{
-                    rotate: item.type === 'bomb' ? [0, -8, 8, 0] : [0, 10, -10, 0],
-                    scale: item.type === 'rare' ? [1, 1.2, 1] : [1, 1.08, 1],
-                  }}
-                  transition={{ duration: item.type === 'rare' ? 0.75 : 1.2, repeat: Infinity }}
-                >
-                  {item.emoji}
-                </motion.div>
-              ))}
-            </AnimatePresence>
-
-            <AnimatePresence>
-              {scorePops.map((pop) => (
-                <motion.div
-                  key={pop.id}
-                  className={`pointer-events-none absolute z-40 text-3xl font-black ${
-                    pop.type === 'good' ? 'text-amber-500' : 'text-rose-500'
-                  }`}
-                  style={{
-                    left: `${pop.x}%`,
-                    top: `${pop.y}%`,
-                    transform: 'translate(-50%, -50%)',
-                  }}
-                  initial={{ scale: 0.4, opacity: 1 }}
-                  animate={{ scale: 1.8, opacity: 0, y: -34 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.65 }}
-                >
-                  {pop.type === 'good' ? '✨' : '💨'} {pop.text}
-                </motion.div>
-              ))}
-            </AnimatePresence>
-
-            <motion.div
-              className="absolute bottom-5 z-20 flex h-28 w-28 items-end justify-center sm:h-32 sm:w-32"
-              style={{ left: `${petX}%`, transform: 'translateX(-50%)' }}
-              animate={ouch ? { rotate: [-5, 5, -3, 3, 0], y: [0, 3, 0] } : { y: [0, -7, 0] }}
-              transition={ouch ? { duration: 0.25 } : { duration: 1.5, repeat: Infinity }}
-            >
-              <div
-                className={`relative ${avatar.isSkin ? 'h-28 w-24 sm:h-32 sm:w-28' : 'h-28 w-28 sm:h-32 sm:w-32'}`}
-              >
-                <Image
-                  src={avatar.src}
-                  alt={avatar.alt}
-                  fill
-                  priority
-                  className="object-contain drop-shadow-2xl"
-                  sizes="128px"
-                />
-              </div>
-            </motion.div>
-
-            {!roundStarted && !gameOver && (
-              <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/55 px-5 py-8 backdrop-blur-sm sm:p-4">
-                <div
-                  className="w-full max-w-[22rem] rounded-[36px] border border-white bg-white text-center shadow-2xl sm:max-w-sm"
-                  style={{ padding: '2rem 1.5rem' }}
-                >
-                  <div className="mx-auto mb-5 flex h-32 w-32 items-center justify-center sm:h-28 sm:w-28">
-                    <div className={`relative ${avatar.isSkin ? 'h-32 w-28 sm:h-28 sm:w-24' : 'h-32 w-32 sm:h-28 sm:w-28'}`}>
-                      <Image
-                        src={avatar.src}
-                        alt={avatar.alt}
-                        fill
-                        loading="eager"
-                        className="object-contain drop-shadow-xl"
-                        sizes="112px"
-                      />
-                    </div>
-                  </div>
-                  <h2 className="text-3xl font-black text-slate-800">Ready to catch?</h2>
-                  <p className="mx-auto mt-3 max-w-[16rem] text-base font-bold leading-relaxed text-slate-500 sm:text-sm">
-                    {child.name} has {dashboardState.hearts} hearts. Each round costs 2 hearts.
-                  </p>
-                  {message && (
-                    <p className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-600">
-                      {message}
-                    </p>
-                  )}
-                  <button
-                    type="button"
-                    onClick={startRound}
-                    disabled={!canPlay}
-                    className="mt-7 flex min-h-16 w-full items-center justify-center rounded-[28px] bg-gradient-to-r from-slate-800 via-violet-700 to-pink-500 px-6 py-5 text-lg font-black leading-tight text-white shadow-xl shadow-pink-200/60 ring-4 ring-pink-100/80 transition active:scale-95 disabled:cursor-not-allowed disabled:bg-none disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none disabled:ring-slate-100 sm:min-h-14 sm:py-4 sm:text-base"
-                  >
-                    Play Pet Catch - 2 💖
-                  </button>
-                  {!canPlay && (
-                    <p className="mt-3 text-xs font-bold text-slate-400">
-                      Earn more hearts from parent rewards or family victories.
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {gameOver && (
-              <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/65 p-4 backdrop-blur-sm">
-                <div className="w-full max-w-sm rounded-[36px] border border-white bg-white px-8 py-7 text-center shadow-2xl">
-                  <div className="mb-3 text-5xl">🏁</div>
-                  <div className="text-3xl font-black text-slate-800">Time Is Up!</div>
-                  <div className="mt-4 rounded-3xl bg-amber-50 px-5 py-4">
-                    <div className="text-xs font-black uppercase tracking-wider text-amber-500">
-                      Final Score
-                    </div>
-                    <div className="mt-1 text-6xl font-black text-amber-500">{score}</div>
-                  </div>
-                  <div className="mt-3 rounded-3xl bg-pink-50 px-5 py-4">
-                    <div className="text-xs font-black uppercase tracking-wider text-pink-500">
-                      Stars Earned
-                    </div>
-                    <div className="mt-1 text-4xl font-black text-pink-600">{starsEarned} ⭐</div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={startRound}
-                    disabled={dashboardState.hearts < HEART_COST}
-                    className="mt-5 w-full rounded-3xl bg-slate-800 px-6 py-4 font-black text-white shadow-lg transition active:scale-95 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
-                  >
-                    Play Again - 2 💖
-                  </button>
-                  {dashboardState.hearts < HEART_COST && (
-                    <p className="mt-3 text-sm font-bold text-slate-400">
-                      Not enough hearts for another round.
-                    </p>
-                  )}
-                  <Link
-                    href={`/child/${childId}`}
-                    className="mt-3 block w-full rounded-3xl bg-sky-100 px-6 py-4 font-black text-sky-800 shadow-sm transition active:scale-95"
-                  >
-                    Back to Dashboard
-                  </Link>
-                </div>
-              </div>
-            )}
-          </motion.div>
-
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              onTouchStart={() => setTouch('left', true)}
-              onTouchEnd={() => setTouch('left', false)}
-              onTouchCancel={() => setTouch('left', false)}
-              onMouseDown={() => setTouch('left', true)}
-              onMouseUp={() => setTouch('left', false)}
-              onMouseLeave={() => setTouch('left', false)}
-              className="rounded-3xl bg-white px-6 py-5 text-3xl shadow-lg transition active:scale-95 sm:py-4"
-            >
-              ◀
-            </button>
-            <button
-              type="button"
-              onTouchStart={() => setTouch('right', true)}
-              onTouchEnd={() => setTouch('right', false)}
-              onTouchCancel={() => setTouch('right', false)}
-              onMouseDown={() => setTouch('right', true)}
-              onMouseUp={() => setTouch('right', false)}
-              onMouseLeave={() => setTouch('right', false)}
-              className="rounded-3xl bg-white px-6 py-5 text-3xl shadow-lg transition active:scale-95 sm:py-4"
-            >
-              ▶
-            </button>
+          <div className="hidden items-center gap-3 rounded-2xl bg-white/80 px-3 py-1.5 text-sm font-extrabold text-ink-soft shadow-soft sm:flex" aria-hidden="true">
+            <span className="flex items-center gap-1"><span className="scale-75"><ItemArt kind="gem" /></span>+1</span>
+            <span className="flex items-center gap-1"><span className="scale-75"><ItemArt kind="rainbow" /></span>+5</span>
+            <span className="flex items-center gap-1"><span className="scale-75"><ItemArt kind="bomb" /></span>−2</span>
           </div>
-
-          <div className="mt-4 text-center text-sm font-semibold text-slate-500">
-            Drag anywhere in the game area to move your pet. Keyboard: ← → · 60 seconds · no Screen Energy, boss damage, goals, or egg progress
+          <div className="relative grid h-16 w-16 place-items-center rounded-full bg-white/90 shadow-soft" aria-label={`${timeLeft} seconds left`}>
+            <svg className="absolute inset-1 -rotate-90" viewBox="0 0 100 100" aria-hidden="true">
+              <circle cx="50" cy="50" r="44" fill="none" stroke="rgb(58 42 77 / 0.1)" strokeWidth="9" />
+              <circle
+                cx="50"
+                cy="50"
+                r="44"
+                fill="none"
+                stroke={timeLeft <= 10 ? '#e84a76' : '#7d5ce0'}
+                strokeWidth="9"
+                strokeLinecap="round"
+                strokeDasharray={2 * Math.PI * 44}
+                strokeDashoffset={2 * Math.PI * 44 * (1 - timeFraction)}
+              />
+            </svg>
+            <span className={`font-display text-xl font-semibold tabular-nums ${timeLeft <= 10 ? 'text-berry-600' : 'text-ink'}`}>{timeLeft}</span>
           </div>
         </div>
+
+        {/* Falling items */}
+        {items.map((item) => (
+          <div
+            key={item.id}
+            className="pointer-events-none absolute z-10 drop-shadow-[0_3px_3px_rgb(58_42_77/0.2)]"
+            style={{ left: `${item.x}%`, top: `${item.y}%`, transform: `translate(-50%, -50%) rotate(${item.spin * (item.y / 100)}deg)` }}
+          >
+            <ItemArt kind={item.kind} />
+          </div>
+        ))}
+
+        {/* Score pops */}
+        <AnimatePresence>
+          {pops.map((pop) => (
+            <motion.span
+              key={pop.id}
+              className={`pointer-events-none absolute z-30 font-display text-3xl font-semibold drop-shadow-[0_2px_0_white] ${pop.good ? 'text-honey-600' : 'text-berry-600'}`}
+              style={{ left: `${pop.x}%`, top: `${pop.y}%` }}
+              initial={{ opacity: 1, scale: 0.6, x: '-50%', y: 0 }}
+              animate={{ opacity: 0, scale: 1.4, y: -50 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.7 }}
+            >
+              {pop.text}
+            </motion.span>
+          ))}
+        </AnimatePresence>
+
+        {/* Player pet */}
+        <div className="pointer-events-none absolute bottom-[6%] z-20 h-[22%] min-h-28 w-[26%] min-w-28 max-w-40" style={{ left: `${petX}%`, transform: 'translateX(-50%)' }}>
+          <div className="h-full w-full transition-transform duration-150" style={{ transform: `scaleX(${facing})` }}>
+            <PetSprite pet={pet} mood="happy" skinId={skinId} petName={petName} idle={phase !== 'playing'} sizes="200px" eager className="h-full w-full" />
+          </div>
+        </div>
+
+        {/* Overlays */}
+        <AnimatePresence>
+          {phase === 'ready' || phase === 'paying' ? (
+            <motion.div key="ready" className="absolute inset-0 z-40 grid place-items-center bg-white/45 p-4 backdrop-blur-[3px]" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <div className="surface w-full max-w-sm p-5 text-center">
+                <div className="mx-auto h-32 w-36">
+                  {hasSnapshot ? <PetSprite pet={pet} mood="happy" skinId={skinId} petName={petName} sizes="160px" eager className="h-full w-full" /> : null}
+                </div>
+                <h1 className="mt-1 font-display text-3xl font-semibold text-ink">Pet Catch</h1>
+                <p className="text-sm font-bold text-ink-soft">Help {petName} catch treats for 60 seconds!</p>
+                <div className="mt-3 grid grid-cols-3 gap-2" aria-label="Catch stars, candy and gems for 1 point, rainbows for 5, avoid bombs which take 2">
+                  <div className="flex flex-col items-center rounded-2xl bg-white/80 py-2">
+                    <div className="flex -space-x-3"><ItemArt kind="star" /><ItemArt kind="gem" /></div>
+                    <span className="font-display text-lg font-semibold text-mint-600">+1</span>
+                  </div>
+                  <div className="flex flex-col items-center rounded-2xl bg-white/80 py-2">
+                    <ItemArt kind="rainbow" />
+                    <span className="font-display text-lg font-semibold text-mint-600">+5</span>
+                  </div>
+                  <div className="flex flex-col items-center rounded-2xl bg-white/80 py-2">
+                    <ItemArt kind="bomb" />
+                    <span className="font-display text-lg font-semibold text-berry-600">−2</span>
+                  </div>
+                </div>
+                {message ? <p className="mt-3 rounded-2xl bg-berry-50 px-3 py-2 text-sm font-bold text-berry-700">{message}</p> : null}
+                <button
+                  type="button"
+                  onClick={() => (canPlay ? void startRound() : setMessage('You need 2 hearts to play. Hearts come from grown-up rewards and boss victories!'))}
+                  disabled={phase === 'paying'}
+                  aria-disabled={!canPlay}
+                  className={`btn-chunky mt-4 min-h-16 w-full text-xl ${canPlay ? 'btn-mint' : 'btn-paper opacity-75'}`}
+                >
+                  {phase === 'paying' ? 'Getting ready…' : (
+                    <>
+                      Play for {PET_CATCH_HEART_COST} <Icon name="heart" size={26} />
+                    </>
+                  )}
+                </button>
+                <p className="mt-2 text-xs font-bold text-ink-faint">
+                  You have {state.hearts} {state.hearts === 1 ? 'heart' : 'hearts'} · Drag to move, or hold the arrows
+                </p>
+              </div>
+            </motion.div>
+          ) : null}
+
+          {phase === 'countdown' ? (
+            <motion.div key="count" className="absolute inset-0 z-40 grid place-items-center bg-white/20" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <AnimatePresence mode="popLayout">
+                <motion.span
+                  key={countdown}
+                  className="font-display text-8xl font-semibold text-white drop-shadow-[0_6px_0_rgb(58_42_77/0.6)]"
+                  initial={{ scale: 2, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.4, opacity: 0 }}
+                >
+                  {countdown > 0 ? countdown : 'Go!'}
+                </motion.span>
+              </AnimatePresence>
+            </motion.div>
+          ) : null}
+
+          {phase === 'finished' ? (
+            <motion.div key="done" className="absolute inset-0 z-40 grid place-items-center bg-white/50 p-4 backdrop-blur-[3px]" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <div className="relative w-full max-w-sm">
+                <Celebration show={starsEarned !== null} burstKey={`end-${starsEarned}`} />
+                <motion.div className="surface p-5 text-center" initial={{ scale: 0.85, y: 20 }} animate={{ scale: 1, y: 0 }} transition={{ type: 'spring', stiffness: 260, damping: 20 }}>
+                  <h2 className="font-display text-3xl font-semibold text-ink">Time&apos;s up!</h2>
+                  <p className="text-sm font-bold text-ink-soft">{petName} had so much fun!</p>
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    <div className="rounded-2xl bg-plum-50 py-3">
+                      <p className="text-xs font-extrabold uppercase tracking-wider text-plum-500">Score</p>
+                      <p className="font-display text-4xl font-semibold text-ink">{score}</p>
+                    </div>
+                    <div className="rounded-2xl bg-honey-50 py-3">
+                      <p className="text-xs font-extrabold uppercase tracking-wider text-honey-600">Stars won</p>
+                      <p className="flex items-center justify-center gap-1 font-display text-4xl font-semibold text-honey-700">
+                        <Icon name="star" size={34} /> {starsEarned ?? '…'}
+                      </p>
+                    </div>
+                  </div>
+                  {rewardError ? <p className="mt-3 rounded-2xl bg-berry-50 px-3 py-2 text-sm font-bold text-berry-700">{rewardError}</p> : null}
+                  <div className="mt-4 grid gap-2">
+                    <button
+                      type="button"
+                      onClick={() => (canPlay ? void startRound() : notify('You need 2 hearts for another round.', 'info'))}
+                      aria-disabled={!canPlay}
+                      className={`btn-chunky min-h-14 text-lg ${canPlay ? 'btn-mint' : 'btn-paper opacity-75'}`}
+                    >
+                      Play again · {PET_CATCH_HEART_COST} <Icon name="heart" size={22} />
+                    </button>
+                    <Link href={`/child/${child.id}`} className="btn-chunky btn-paper min-h-12 text-base">
+                      <Icon name="home" size={22} /> Back home
+                    </Link>
+                  </div>
+                </motion.div>
+              </div>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+      </motion.div>
+
+      {/* Hold-to-move buttons */}
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        {(['left', 'right'] as const).map((side) => (
+          <button
+            key={side}
+            type="button"
+            aria-label={`Move ${side}`}
+            onPointerDown={(e) => {
+              e.currentTarget.setPointerCapture(e.pointerId);
+              hold(side, true);
+            }}
+            onPointerUp={() => hold(side, false)}
+            onPointerCancel={() => hold(side, false)}
+            onLostPointerCapture={() => hold(side, false)}
+            onContextMenu={(e) => e.preventDefault()}
+            className="btn-chunky btn-paper min-h-16 touch-none text-ink"
+          >
+            <Icon name={side === 'left' ? 'arrow-left' : 'chevron-right'} size={36} />
+          </button>
+        ))}
       </div>
-    </ChildPageFrame>
+    </div>
   );
 }

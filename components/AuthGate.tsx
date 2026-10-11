@@ -10,10 +10,16 @@ const PARENT_PIN_SESSION_KEY = 'pocket-pets-parent-pin-unlocked';
 
 function CozyLoading() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-amber-50 via-pink-50 to-blue-50 px-6">
-      <div className="rounded-[28px] border border-white/80 bg-white/85 px-7 py-6 text-center shadow-sm">
-        <div className="text-3xl font-black text-pink-400">PP</div>
-        <p className="mt-3 text-sm font-extrabold text-slate-700">Checking Pocket Pets...</p>
+    <main className="grid min-h-dvh place-items-center bg-gradient-to-b from-plum-100 via-cream to-paper px-6">
+      <div className="flex flex-col items-center gap-3 text-plum-500" role="status">
+        <svg viewBox="0 0 48 48" width="64" height="64" className="animate-float" aria-hidden="true">
+          <ellipse cx="24" cy="31" rx="9" ry="7.5" fill="currentColor" />
+          <circle cx="13" cy="21" r="4" fill="currentColor" />
+          <circle cx="20" cy="13.5" r="4" fill="currentColor" />
+          <circle cx="28" cy="13.5" r="4" fill="currentColor" />
+          <circle cx="35" cy="21" r="4" fill="currentColor" />
+        </svg>
+        <p className="font-display text-lg font-semibold text-ink-soft">Opening Pocket Pets…</p>
       </div>
     </main>
   );
@@ -58,13 +64,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const isChildPage = pathname?.startsWith('/child');
   const usesPageHeaderLogout = pathname === '/' || pathname?.startsWith('/parent');
   const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Without Supabase env (local dev) there is nothing to check.
+  const [loading, setLoading] = useState(hasSupabaseBrowserEnv);
 
   useEffect(() => {
-    if (!hasSupabaseBrowserEnv()) {
-      setLoading(false);
-      return;
-    }
+    if (!hasSupabaseBrowserEnv()) return;
 
     const supabase = getSupabaseBrowserClient();
     let mounted = true;
@@ -122,7 +126,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   return (
     <>
-      <LogoutButton className={isChildPage ? 'hidden md:inline-flex' : usesPageHeaderLogout ? 'hidden' : ''} />
+      {isChildPage || usesPageHeaderLogout ? null : <LogoutButton />}
       {children}
     </>
   );

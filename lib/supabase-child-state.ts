@@ -249,6 +249,48 @@ export async function fetchChildState(
   return data ? toSupabaseChildState(data, child) : null;
 }
 
+// ─── Versioned row access (economy transactions) ─────────────────────────────
+
+export type ChildRowSnapshot = ChildrenRow;
+
+export function childRowToState(row: ChildrenRow, child: Child): SupabaseChildState {
+  return toSupabaseChildState(row, child);
+}
+
+/** Fresh read for a transaction. Throws on transport errors so callers never fall back to stale data. */
+export async function fetchChildRow(child: Child): Promise<ChildrenRow | null> {
+  const supabase = getSupabaseBrowserClient();
+  const { data, error } = await supabase
+    .from('children')
+    .select(SELECT_COLUMNS)
+    .eq('child_id', child.id)
+    .maybeSingle<ChildrenRow>();
+  if (error) throw new Error(error.message);
+  return data ?? null;
+}
+
+/**
+ * Compare-and-swap write keyed on updated_at (bumped by the set_updated_at trigger
+ * on every update, including the verification and care RPCs). Returns null when
+ * another device changed the row first.
+ */
+export async function updateChildRowIfUnchanged(
+  child: Child,
+  current: ChildrenRow,
+  patch: Record<string, unknown>
+): Promise<ChildrenRow | null> {
+  const supabase = getSupabaseBrowserClient();
+  const { data, error } = await supabase
+    .from('children')
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq('child_id', child.id)
+    .eq('updated_at', current.updated_at)
+    .select(SELECT_COLUMNS)
+    .returns<ChildrenRow[]>();
+  if (error) throw new Error(error.message);
+  return data && data.length > 0 ? data[0] : null;
+}
+
 // ─── Full upsert (called on every save from mission-state) ───────────────────
 
 export async function upsertChildStateFromDashboard(

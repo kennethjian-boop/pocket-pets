@@ -106,7 +106,7 @@ export const PET_ROSTER: PetRosterItem[] = [
     defaultMood: 'neutral',
     moodImages: {
       neutral: '/pets/bubbo/moods/neutral.png',
-      happy: '/pets/bubbo/moods/happy.png',
+      happy: '/pets/bubbo/clean/happy.png',
       sad: '/pets/bubbo/moods/sad.png',
       sleep: '/pets/bubbo/moods/sleepy.png',
     },
@@ -118,10 +118,10 @@ export const PET_ROSTER: PetRosterItem[] = [
     emoji: 'Moon',
     defaultMood: 'neutral',
     moodImages: {
-      neutral: '/pets/luna/moods/neutral.png',
-      happy: '/pets/luna/moods/happy.png',
-      sad: '/pets/luna/moods/sad.png',
-      sleep: '/pets/luna/moods/sleepy.png',
+      neutral: '/pets/luna/clean/neutral.png',
+      happy: '/pets/luna/clean/happy.png',
+      sad: '/pets/luna/clean/sad.png',
+      sleep: '/pets/luna/clean/sleepy.png',
     },
   },
   {

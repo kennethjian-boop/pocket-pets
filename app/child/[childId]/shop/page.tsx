@@ -1,636 +1,430 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { PET_ROSTER, Reward, getChild, mockRewards, type PetRosterItem } from '@/lib/mock-data';
-import { ChildPageFrame } from '@/app/child/_components/ChildSidebar';
-import {
-  SkinId,
-  PetType,
-  hydrateChildDashboardStateFromSupabase,
-  mergeWithDefaultChildState,
-  SecretEggState,
-  createSecretEgg,
-  readChildDashboardState,
-  readChildSupabaseSyncMeta,
-  saveChildDashboardState,
-  selectActivePet,
-  purchaseSkin,
-  setActiveSkin,
-} from '@/lib/mission-state';
-import { skinsByPet, getSkinById, SKIN_COST } from '@/lib/pet-skins';
+import { Icon, type IconName } from '@/components/ui/Icon';
+import { PetSprite } from '@/components/child/PetSprite';
+import { EggArt } from '@/components/child/EggArt';
+import { ConfirmSheet } from '@/components/child/ConfirmSheet';
+import { Celebration } from '@/components/child/Celebration';
+import { useChildState } from '@/app/child/_components/ChildStateProvider';
+import { PET_ROSTER, mockRewards, type PetRosterItem, type Reward } from '@/lib/mock-data';
+import { SECRET_EGG_COST, selectActivePet, setActiveSkin } from '@/lib/mission-state';
+import { skinsByPet, type PetSkin, type PetType, type SkinId } from '@/lib/pet-skins';
+import { buyScreenEnergy, buySecretEgg, buySkin, type EconomyResult } from '@/lib/child-economy';
 
-function getShopDashboardKey(state: ReturnType<typeof mergeWithDefaultChildState>) {
-  return JSON.stringify({
-    stars: state.stars,
-    screenEnergy: state.screenEnergy,
-    ownedSkins: state.ownedSkins,
-    activeSkins: state.activeSkins,
-    unlockedPets: state.unlockedPets,
-    activePetId: state.activePetId,
-    activeEgg: state.activeEgg,
-    eggMessage: state.eggMessage,
-  });
+type Tab = 'looks' | 'pets' | 'egg' | 'screen';
+
+const TABS: { id: Tab; label: string; icon: IconName }[] = [
+  { id: 'looks', label: 'Looks', icon: 'sparkle' },
+  { id: 'pets', label: 'Pets', icon: 'paw' },
+  { id: 'egg', label: 'Egg', icon: 'egg' },
+  { id: 'screen', label: 'Screen time', icon: 'energy' },
+];
+
+type Pending =
+  | { kind: 'skin'; skin: PetSkin }
+  | { kind: 'egg' }
+  | { kind: 'energy'; reward: Reward }
+  | null;
+
+function lookName(skin: PetSkin, petName: string) {
+  return skin.name.replace(new RegExp(`\\s*${petName}$`), '').trim();
 }
 
 export default function RewardShop() {
-  const params = useParams();
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const childId = params.childId as string;
-
-  const child = getChild(childId);
-  const [stars, setStars] = useState(child?.stars || 0);
-  const [screenEnergy, setScreenEnergy] = useState(child?.screenEnergy || 0);
-  const [ownedSkins, setOwnedSkins] = useState<SkinId[]>([]);
-  const [activeSkins, setActiveSkins] = useState<Record<PetType, SkinId | null>>({
-    luna: null, bubbo: null, mochi: null, ember: null,
-  });
-  const [unlockedPets, setUnlockedPets] = useState<Array<PetRosterItem['id']>>([]);
-  const [activePetType, setActivePetType] = useState<PetRosterItem['id'] | ''>('');
-  const [activeEgg, setActiveEgg] = useState<SecretEggState | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [dashboardLoaded, setDashboardLoaded] = useState(false);
-  const lastSyncedDashboardKeyRef = useRef('');
+  const { child, state, applyState, notify } = useChildState();
+  const [tab, setTab] = useState<Tab>('looks');
+  const [lookPet, setLookPet] = useState<PetType | null>(null);
+  const [pending, setPending] = useState<Pending>(null);
+  const [buying, setBuying] = useState(false);
+  const buyingRef = useRef(false);
+  const [burst, setBurst] = useState(0);
 
   useEffect(() => {
-    if (!child) return;
-
-    const applyDashboardState = (
-      stored: ReturnType<typeof mergeWithDefaultChildState>,
-      loaded = false
-    ) => {
-      setStars(stored.stars);
-      setScreenEnergy(stored.screenEnergy);
-      setOwnedSkins(stored.ownedSkins);
-      setActiveSkins(stored.activeSkins);
-      setUnlockedPets(stored.unlockedPets);
-      setActivePetType(stored.activePetId);
-      setActiveEgg(stored.activeEgg);
-      if (stored.eggMessage) {
-        setMessage(stored.eggMessage);
-        window.setTimeout(() => setMessage(null), 2000);
-      }
-      setDashboardLoaded(loaded);
+    const fromHash = () => {
+      const hash = window.location.hash.replace('#', '');
+      if (TABS.some((t) => t.id === hash)) setTab(hash as Tab);
     };
-
-    const hydrateTimer = window.setTimeout(() => {
-      const stored = mergeWithDefaultChildState(child, readChildDashboardState(child.id));
-      lastSyncedDashboardKeyRef.current = getShopDashboardKey(stored);
-      applyDashboardState(stored, false);
-      void hydrateChildDashboardStateFromSupabase(child.id, child).then((hydrated) => {
-        lastSyncedDashboardKeyRef.current = getShopDashboardKey(hydrated);
-        applyDashboardState(hydrated, true);
-        const syncMeta = readChildSupabaseSyncMeta(child.id);
-        if (syncMeta.lastSyncSource === 'local-fallback') {
-          setDashboardLoaded(false);
-        }
-      });
-    }, 0);
-
-    return () => window.clearTimeout(hydrateTimer);
-  }, [child]);
-
-  useEffect(() => {
-    if (!child || !dashboardLoaded) return;
-
-    const syncFromStorage = () => {
-      const stored = mergeWithDefaultChildState(child, readChildDashboardState(child.id));
-      const nextKey = getShopDashboardKey(stored);
-      if (nextKey === lastSyncedDashboardKeyRef.current) return;
-
-      lastSyncedDashboardKeyRef.current = nextKey;
-      setStars(stored.stars);
-      setScreenEnergy(stored.screenEnergy);
-      setOwnedSkins(stored.ownedSkins);
-      setActiveSkins(stored.activeSkins);
-      setUnlockedPets(stored.unlockedPets);
-      setActivePetType(stored.activePetId);
-      setActiveEgg(stored.activeEgg);
-      if (stored.eggMessage) {
-        setMessage(stored.eggMessage);
-        window.setTimeout(() => setMessage(null), 2000);
-      }
-    };
-
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key === `child-dashboard-state-${child.id}`) {
-        syncFromStorage();
-      }
-    };
-
-    window.addEventListener('storage', handleStorage);
-    const refreshTimer = window.setInterval(syncFromStorage, 1000);
-
+    const t = window.setTimeout(fromHash, 0);
+    window.addEventListener('hashchange', fromHash);
     return () => {
-      window.removeEventListener('storage', handleStorage);
-      window.clearInterval(refreshTimer);
+      window.clearTimeout(t);
+      window.removeEventListener('hashchange', fromHash);
     };
-  }, [child, dashboardLoaded]);
+  }, []);
 
-  useEffect(() => {
-    if (!child || searchParams.get('setEggProgress') !== '9') return;
+  const activePet = state.activePetId as PetType;
+  const browsingPet: PetType = lookPet ?? activePet;
+  const owned = (pet: PetType) => state.unlockedPets.includes(pet);
+  const egg = state.activeEgg;
+  const hasActiveEgg = Boolean(egg && !egg.hatched);
+  const ownsAllPets = PET_ROSTER.every((p) => owned(p.id));
 
-    const timer = window.setTimeout(() => {
-      const stored = mergeWithDefaultChildState(child, readChildDashboardState(child.id));
-      const existingEgg = stored.activeEgg;
-      const nextEgg: SecretEggState =
-        existingEgg && !existingEgg.hatched
-          ? { ...existingEgg, progress: 9, requiredGoals: 10, contributedGoalIds: existingEgg.contributedGoalIds.slice(0, 9) }
-          : { id: `secret-egg-test-${child.id}`, type: 'secret-egg', progress: 9, requiredGoals: 10, contributedGoalIds: [], hatched: false, unlockedPetId: null };
-
-      const nextState = saveChildDashboardState(child.id, child, { activeEgg: nextEgg, eggMessage: null });
-      setStars(nextState.stars);
-      setScreenEnergy(nextState.screenEnergy);
-      setOwnedSkins(nextState.ownedSkins);
-      setActiveSkins(nextState.activeSkins);
-      setUnlockedPets(nextState.unlockedPets);
-      setActivePetType(nextState.activePetId);
-      setActiveEgg(nextState.activeEgg);
-      setMessage('Secret Egg progress set to 9 / 10 for testing.');
-      router.replace(`/child/${child.id}/shop`);
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, [child, router, searchParams]);
-
-  if (!child) return <div>Child not found</div>;
-
-  const showMessage = (nextMessage: string) => {
-    setMessage(nextMessage);
-    setTimeout(() => setMessage(null), 2500);
-  };
-
-  const handlePurchaseReward = (reward: Reward) => {
-    if (stars < reward.cost) { showMessage('Not enough stars yet!'); return; }
-
-    if (reward.type === 'egg') {
-      const result = createSecretEgg(child.id, child);
-      setStars(result.state.stars);
-      setScreenEnergy(result.state.screenEnergy);
-      setOwnedSkins(result.state.ownedSkins);
-      setActiveSkins(result.state.activeSkins);
-      setUnlockedPets(result.state.unlockedPets);
-      setActivePetType(result.state.activePetId);
-      setActiveEgg(result.state.activeEgg);
-      showMessage(result.message);
-      return;
-    }
-
-    if (reward.type === 'screen-energy') {
-      const amount = reward.effectAmount ?? 1;
-      const current = mergeWithDefaultChildState(child, readChildDashboardState(child.id));
-      const nextState = saveChildDashboardState(child.id, child, {
-        stars: Math.max(0, current.stars - reward.cost),
-        screenEnergy: current.screenEnergy + amount,
-      });
-      setStars(nextState.stars);
-      setScreenEnergy(nextState.screenEnergy);
-      showMessage(amount === 6 ? '+6 Screen Energy added! That is 60 minutes weekend screen time.' : '+1 Screen Energy added!');
-      return;
+  const finish = (result: EconomyResult, success: string) => {
+    applyState(result.state);
+    if (result.ok) {
+      setBurst((b) => b + 1);
+      notify(success, 'celebrate');
+    } else {
+      notify(result.message, result.code === 'insufficient' ? 'warning' : 'info');
     }
   };
 
-  const handlePurchaseSkin = (skinId: SkinId) => {
-    if (!child) return;
-    const result = purchaseSkin(child.id, child, skinId);
-    setStars(result.state.stars);
-    setOwnedSkins(result.state.ownedSkins);
-    showMessage(result.message);
+  const confirmPurchase = async () => {
+    if (!pending || buyingRef.current) return;
+    buyingRef.current = true;
+    setBuying(true);
+    try {
+      if (pending.kind === 'skin') {
+        const pet = PET_ROSTER.find((p) => p.id === pending.skin.petType);
+        finish(await buySkin(child, pending.skin.id), `${lookName(pending.skin, pet?.name ?? '')} look unlocked!`);
+      } else if (pending.kind === 'egg') {
+        finish(await buySecretEgg(child), 'Your Secret Egg is ready to hatch!');
+      } else {
+        const amount = pending.reward.effectAmount ?? 1;
+        finish(
+          await buyScreenEnergy(child, pending.reward.cost, amount),
+          `+${amount} Screen Energy! That's ${amount * 10} more minutes.`
+        );
+      }
+    } finally {
+      buyingRef.current = false;
+      setBuying(false);
+      setPending(null);
+    }
   };
 
-  const handleToggleSkin = (petType: PetType, skinId: SkinId) => {
-    if (!child) return;
-    const isActive = activeSkins[petType] === skinId;
-    const nextSkinId = isActive ? null : skinId;
-    const nextState = setActiveSkin(child.id, child, petType, nextSkinId);
-    setActiveSkins(nextState.activeSkins);
-    const skin = getSkinById(skinId);
-    showMessage(isActive ? `${skin?.name ?? 'Look'} removed.` : `${skin?.name ?? 'Look'} equipped!`);
+  const toggleSkin = (skin: PetSkin) => {
+    const wearing = state.activeSkins[skin.petType] === skin.id;
+    const next = setActiveSkin(child.id, child, skin.petType, wearing ? null : skin.id);
+    applyState(next);
+    const petName = PET_ROSTER.find((p) => p.id === skin.petType)?.name ?? 'Your pet';
+    notify(wearing ? `${petName} is back to their cozy self.` : `${petName} is wearing ${lookName(skin, petName)}!`, 'success');
   };
 
-  const handleChoosePet = (petId: PetRosterItem['id']) => {
-    if (!unlockedPets.includes(petId)) { showMessage('Hatch a Secret Egg to unlock this pet!'); return; }
-    const nextState = selectActivePet(child.id, child, petId);
-    const petName = PET_ROSTER.find((p) => p.id === petId)?.name ?? 'Pet';
-    setActivePetType(nextState.activePetId);
-    showMessage(`${petName} is now your active pet!`);
+  const choosePet = (pet: PetRosterItem) => {
+    if (!owned(pet.id)) {
+      notify('Hatch a Secret Egg to meet this pet!', 'info');
+      return;
+    }
+    applyState(selectActivePet(child.id, child, pet.id));
+    setLookPet(null);
+    notify(`${pet.name} is playing with you now!`, 'success');
   };
 
-  const ownsAllPets = PET_ROSTER.every((p) => unlockedPets.includes(p.id));
-  const hasActiveEgg = Boolean(activeEgg && !activeEgg.hatched);
-  const hatchedPet = activeEgg?.unlockedPetId ? PET_ROSTER.find((p) => p.id === activeEgg.unlockedPetId) : undefined;
-  const eggReward = mockRewards.find((r) => r.type === 'egg');
-  const screenEnergyRewards = mockRewards.filter((r) => r.type === 'screen-energy');
-
-  const containerVariants = {
-    hidden: { opacity: 0 },
-    visible: { opacity: 1, transition: { staggerChildren: 0.08, delayChildren: 0.1 } },
-  };
-  const itemVariants = {
-    hidden: { opacity: 0, y: 10 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.45 } },
-  };
+  const pendingCost =
+    pending?.kind === 'skin' ? pending.skin.cost : pending?.kind === 'egg' ? SECRET_EGG_COST : pending?.reward.cost ?? 0;
+  const pendingTitle =
+    pending?.kind === 'skin'
+      ? `Buy the ${lookName(pending.skin, PET_ROSTER.find((p) => p.id === pending.skin.petType)?.name ?? '')} look?`
+      : pending?.kind === 'egg'
+        ? 'Buy a Secret Egg?'
+        : pending?.kind === 'energy'
+          ? `Buy ${pending.reward.effectAmount} Screen Energy?`
+          : '';
 
   return (
-    <ChildPageFrame childId={childId}>
-      <div className="min-h-screen bg-gradient-to-br from-amber-100 via-yellow-50 to-orange-100 pt-6">
-      <motion.div
-        className="mx-auto max-w-[1400px] px-4 pb-10 sm:px-6"
-        variants={containerVariants}
-        initial="hidden"
-        animate="visible"
-      >
-        {/* ── Toast ──────────────────────────────────────────────────────── */}
-        {message && (
-          <motion.div
-            key={message}
-            variants={itemVariants}
-            animate={{ scale: [1, 1.04, 1], opacity: [1, 0.85, 1] }}
-            className="mb-5 rounded-2xl bg-green-200 px-4 py-3 text-center font-bold text-green-800 shadow-sm"
+    <div className="mx-auto w-full max-w-5xl px-3 pb-6 pt-4 sm:px-6 lg:px-8 lg:py-8">
+      <div className="pointer-events-none fixed inset-0 z-40">
+        <Celebration show={burst > 0} burstKey={burst} />
+      </div>
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <h1 className="font-display text-3xl font-semibold text-ink sm:text-4xl">Magic Shop</h1>
+          <p className="text-sm font-bold text-ink-soft">Spend your stars on something special</p>
+        </div>
+      </div>
+
+      <div role="tablist" aria-label="Shop sections" className="surface-flat no-scrollbar mt-4 grid grid-cols-4 gap-1 p-1.5">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => {
+              setTab(t.id);
+              history.replaceState(null, '', `#${t.id}`);
+            }}
+            className={`flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-2xl px-1 font-display text-sm font-semibold transition sm:flex-row sm:gap-2 sm:text-base ${
+              tab === t.id ? 'bg-white text-plum-600 shadow-soft' : 'text-ink-soft'
+            }`}
           >
-            {message}
-          </motion.div>
-        )}
+            <Icon name={t.icon} size={26} className={t.id === 'pets' ? 'text-plum-500' : ''} />
+            <span className="leading-none">{t.label}</span>
+          </button>
+        ))}
+      </div>
 
-        {/* ── TOP HERO ROW ───────────────────────────────────────────────── */}
-        <motion.div
-          variants={itemVariants}
-          className="mb-6 grid gap-5 lg:grid-cols-[340px_1fr]"
-        >
-          {/* LEFT: Title + Currency */}
-          <div className="flex flex-col gap-4">
-            <div>
-              <h1 className="text-4xl font-extrabold tracking-tight text-gray-800">🛍️ Reward Shop</h1>
-              <p className="mt-1 text-sm font-semibold text-amber-700">Your magical collectible boutique</p>
+      <motion.div key={tab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className="mt-4">
+        {tab === 'looks' ? (
+          <section aria-label="Pet looks">
+            <div className="no-scrollbar -mx-3 flex gap-2 overflow-x-auto px-3 pb-1 sm:mx-0 sm:px-0">
+              {[...PET_ROSTER]
+                .sort((a, b) => Number(b.id === activePet) - Number(a.id === activePet) || Number(owned(b.id)) - Number(owned(a.id)))
+                .map((pet) => {
+                const selected = browsingPet === pet.id;
+                return (
+                  <button
+                    key={pet.id}
+                    type="button"
+                    onClick={() => setLookPet(pet.id)}
+                    aria-pressed={selected}
+                    className={`flex min-h-12 shrink-0 items-center gap-2 rounded-full py-1 pl-1 pr-4 font-display text-base font-semibold transition ${
+                      selected ? 'bg-plum-500 text-white shadow-soft' : 'bg-white/80 text-ink'
+                    }`}
+                  >
+                    <span className="relative h-10 w-10 overflow-hidden rounded-full bg-white">
+                      <PetSprite pet={pet.id} mood="happy" idle={false} shadow={false} sizes="48px" grayscale={!owned(pet.id)} className="h-full w-full" />
+                    </span>
+                    {pet.name}
+                    {!owned(pet.id) ? <Icon name="lock" size={18} /> : null}
+                  </button>
+                );
+              })}
             </div>
 
-            <div className="rounded-3xl border-2 border-yellow-200 bg-gradient-to-br from-yellow-50 to-amber-50 p-5 shadow-md">
-              <p className="text-xs font-bold uppercase tracking-widest text-amber-600">Stars</p>
-              <div className="mt-2 flex items-end gap-2">
-                <span className="text-6xl font-extrabold tabular-nums leading-none text-amber-600">{stars}</span>
-                <span className="mb-1 text-3xl">⭐</span>
-              </div>
-              <p className="mt-2 text-xs font-semibold text-amber-500">Spend on looks, screen time &amp; eggs</p>
-            </div>
-
-            <div className="rounded-3xl border-2 border-blue-200 bg-gradient-to-br from-blue-50 to-sky-50 p-5 shadow-md">
-              <p className="text-xs font-bold uppercase tracking-widest text-blue-600">Weekend Screen Energy</p>
-              <div className="mt-2 flex items-end gap-2">
-                <span className="text-6xl font-extrabold tabular-nums leading-none text-blue-600">{screenEnergy}</span>
-                <span className="mb-1 text-3xl">🔋</span>
-              </div>
-              <p className="mt-2 text-xs font-semibold text-blue-500">{screenEnergy} energy = {screenEnergy * 10} min of screen time</p>
-            </div>
-          </div>
-
-          {/* RIGHT: Secret Egg Hero */}
-          <div className="flex flex-col rounded-3xl border-2 border-purple-200 bg-gradient-to-br from-purple-50 via-white/90 to-pink-50 p-6 shadow-lg">
-            <div className="mb-5">
-              <h2 className="text-2xl font-extrabold text-purple-900">🥚 Secret Egg</h2>
-              <p className="mt-1 text-sm font-semibold text-purple-500">
-                Hatches after 10 parent-verified goals — unlocks a brand-new pet!
+            {!owned(browsingPet) ? (
+              <p className="mt-3 flex items-center gap-2 rounded-2xl bg-white/70 px-4 py-3 text-sm font-bold text-ink-soft">
+                <Icon name="egg" size={26} /> Hatch a Secret Egg to meet this pet — then you can dress them up!
               </p>
-            </div>
+            ) : null}
 
-            {hasActiveEgg && activeEgg ? (
-              <div className="flex flex-1 flex-col justify-center gap-5">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-lg font-extrabold text-purple-900">Hatching in progress…</h3>
-                  <span className="shrink-0 rounded-full bg-purple-100 px-4 py-1.5 text-base font-extrabold text-purple-800">
-                    {activeEgg.progress} / {activeEgg.requiredGoals}
-                  </span>
-                </div>
-                <div className="h-6 overflow-hidden rounded-full bg-purple-100 shadow-inner">
-                  <motion.div
-                    className="h-full rounded-full bg-gradient-to-r from-violet-400 via-purple-400 to-pink-400"
-                    initial={{ width: 0 }}
-                    animate={{ width: `${(activeEgg.progress / activeEgg.requiredGoals) * 100}%` }}
-                    transition={{ duration: 0.9, ease: 'easeOut' }}
-                  />
-                </div>
-                <p className="rounded-2xl bg-purple-50 px-4 py-3 text-sm font-semibold text-purple-700">
-                  ✨ Each parent-verified daily goal adds 1 hatching progress.
-                </p>
-              </div>
-            ) : activeEgg?.hatched && hatchedPet ? (
-              <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-2xl bg-emerald-50 p-5 text-center">
-                <div className="relative mx-auto aspect-square w-full max-w-[140px]">
-                  <Image
-                    src={hatchedPet.moodImages.happy}
-                    alt={`${hatchedPet.name} happy`}
-                    fill
-                    className="object-contain"
-                    sizes="140px"
-                  />
-                </div>
-                <div>
-                  <h3 className="text-xl font-extrabold text-emerald-800">🎉 Egg Hatched!</h3>
-                  <p className="mt-1 text-sm font-semibold text-emerald-600">You unlocked {hatchedPet.name}!</p>
-                </div>
-                {activePetType !== hatchedPet.id ? (
+            <ul className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {skinsByPet[browsingPet].map((skin) => {
+                const petName = PET_ROSTER.find((p) => p.id === skin.petType)?.name ?? '';
+                const isOwned = state.ownedSkins.includes(skin.id as SkinId);
+                const wearing = state.activeSkins[skin.petType] === skin.id;
+                const petOwned = owned(skin.petType);
+                const short = state.stars < skin.cost;
+                return (
+                  <li key={skin.id} className={`surface relative flex flex-col overflow-hidden p-2.5 ${wearing ? 'ring-4 ring-mint-300' : ''}`}>
+                    <div className={`relative aspect-square overflow-hidden rounded-[1.25rem] sm:aspect-[4/5] ${isOwned ? 'bg-gradient-to-b from-plum-100 to-peach-100' : 'bg-gradient-to-b from-cream to-white'}`}>
+                      <Image
+                        src={skin.imagePath}
+                        alt={skin.name}
+                        fill
+                        sizes="(min-width: 1024px) 220px, (min-width: 640px) 30vw, 45vw"
+                        className={`object-contain p-1 transition ${petOwned ? '' : 'grayscale opacity-40'}`}
+                      />
+                      {wearing ? (
+                        <span className="absolute left-2 top-2 flex items-center gap-1 rounded-full bg-mint-500 px-2 py-0.5 text-xs font-extrabold text-white">
+                          <Icon name="check" size={14} /> Wearing
+                        </span>
+                      ) : isOwned ? (
+                        <span className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-0.5 text-xs font-extrabold text-plum-600">Yours</span>
+                      ) : null}
+                      {!petOwned ? (
+                        <span className="absolute inset-0 grid place-items-center">
+                          <Icon name="lock" size={40} />
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="mt-2 line-clamp-2 min-h-[2.5rem] px-0.5 text-center font-display text-[15px] font-semibold leading-tight text-ink">
+                      {lookName(skin, petName)}
+                    </p>
+                    <div className="mt-2">
+                      {isOwned ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleSkin(skin)}
+                          className={`btn-chunky w-full min-h-11 text-base ${wearing ? 'btn-paper' : 'btn-mint'}`}
+                        >
+                          {wearing ? 'Take off' : 'Wear'}
+                        </button>
+                      ) : petOwned ? (
+                        <button
+                          type="button"
+                          onClick={() => (short ? notify(`You need ${skin.cost - state.stars} more stars for this look.`, 'info') : setPending({ kind: 'skin', skin }))}
+                          aria-disabled={short}
+                          className={`btn-chunky w-full min-h-11 text-base ${short ? 'btn-paper opacity-70' : 'btn-honey'}`}
+                        >
+                          <Icon name="star" size={20} /> {skin.cost}
+                        </button>
+                      ) : (
+                        <span className="flex min-h-11 items-center justify-center rounded-2xl bg-ink/5 text-sm font-extrabold text-ink-faint">Locked</span>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="mt-4 text-center text-xs font-bold text-ink-faint">Looks are just for fun — they don&apos;t change quests, rewards or mood.</p>
+          </section>
+        ) : null}
+
+        {tab === 'pets' ? (
+          <section aria-label="Pet collection">
+            <p className="mb-3 text-sm font-bold text-ink-soft">
+              You have {PET_ROSTER.filter((p) => owned(p.id)).length} of {PET_ROSTER.length} pets
+            </p>
+            <ul className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              {PET_ROSTER.map((pet) => {
+                const isOwned = owned(pet.id);
+                const active = activePet === pet.id;
+                return (
+                  <li key={pet.id} className={`surface relative flex flex-col items-center overflow-hidden p-3 text-center ${active ? 'ring-4 ring-plum-300' : ''}`}>
+                    <div className={`relative h-32 w-full rounded-[1.25rem] sm:h-40 ${isOwned ? 'bg-gradient-to-b from-sky-100 to-mint-50' : 'bg-gradient-to-b from-plum-100 to-plum-50'}`}>
+                      {isOwned ? (
+                        <div className="absolute inset-2">
+                          <PetSprite pet={pet.id} mood="happy" skinId={state.activeSkins[pet.id]} sizes="200px" className="h-full w-full" idle={active} />
+                        </div>
+                      ) : (
+                        <div className="absolute inset-2">
+                          <PetSprite pet={pet.id} mood="neutral" sizes="200px" idle={false} className="h-full w-full brightness-0 opacity-25" />
+                          <span className="absolute inset-0 grid place-items-center font-display text-5xl font-semibold text-white drop-shadow">?</span>
+                        </div>
+                      )}
+                    </div>
+                    <h2 className="mt-2 font-display text-xl font-semibold text-ink">{isOwned ? pet.name : 'Mystery pet'}</h2>
+                    <p className="line-clamp-2 min-h-[2.25rem] text-xs font-bold text-ink-soft">
+                      {isOwned ? pet.description : 'Hatch a Secret Egg to meet them!'}
+                    </p>
+                    <div className="mt-2 w-full">
+                      {active ? (
+                        <span className="flex min-h-11 items-center justify-center gap-1 rounded-2xl bg-plum-50 font-display text-base font-semibold text-plum-600">
+                          <Icon name="heart" size={18} /> Playing now
+                        </span>
+                      ) : isOwned ? (
+                        <button type="button" onClick={() => choosePet(pet)} className="btn-chunky btn-plum min-h-11 w-full text-base">
+                          Play with {pet.name}
+                        </button>
+                      ) : (
+                        <button type="button" onClick={() => setTab('egg')} className="btn-chunky btn-paper min-h-11 w-full text-sm">
+                          <Icon name="egg" size={18} /> See the egg
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        ) : null}
+
+        {tab === 'egg' ? (
+          <section aria-label="Secret Egg" className="surface relative mx-auto max-w-xl overflow-hidden p-5 text-center sm:p-8">
+            <div className="absolute inset-0 bg-gradient-to-b from-plum-100/70 via-white/0 to-honey-100/60" aria-hidden="true" />
+            <div className="relative">
+              {hasActiveEgg && egg ? (
+                <>
+                  <EggArt progress={egg.progress} required={egg.requiredGoals} size={140} />
+                  <h2 className="mt-3 font-display text-3xl font-semibold text-ink">Your egg is hatching!</h2>
+                  <p className="mt-1 text-base font-bold text-ink-soft">
+                    Every quest a grown-up checks gives it a little warmth.
+                  </p>
+                  <div className="mx-auto mt-4 grid max-w-sm grid-cols-10 gap-1.5" aria-label={`${egg.progress} of ${egg.requiredGoals}`}>
+                    {Array.from({ length: egg.requiredGoals }, (_, i) => (
+                      <span key={i} className={`aspect-square rounded-full ${i < egg.progress ? 'bg-gradient-to-br from-plum-300 to-berry-300 shadow-inner' : 'bg-ink/10'}`} />
+                    ))}
+                  </div>
+                  <p className="mt-2 font-display text-xl font-semibold text-plum-600">
+                    {egg.progress} / {egg.requiredGoals} quests
+                  </p>
+                </>
+              ) : ownsAllPets ? (
+                <>
+                  <Icon name="crown" size={96} />
+                  <h2 className="mt-3 font-display text-3xl font-semibold text-ink">You found every pet!</h2>
+                  <p className="mt-1 text-base font-bold text-ink-soft">What an amazing collection.</p>
+                </>
+              ) : (
+                <>
+                  {egg?.hatched && egg.unlockedPetId ? (
+                    <p className="mb-3 rounded-2xl bg-mint-50 px-4 py-2 text-sm font-extrabold text-mint-700">
+                      Your last egg hatched {PET_ROSTER.find((p) => p.id === egg.unlockedPetId)?.name}! Ready for another?
+                    </p>
+                  ) : null}
+                  <EggArt progress={0} required={10} size={140} />
+                  <h2 className="mt-3 font-display text-3xl font-semibold text-ink">Secret Egg</h2>
+                  <p className="mx-auto mt-1 max-w-sm text-base font-bold text-ink-soft">
+                    A mystery pet is inside! It hatches after 10 quests checked by a grown-up.
+                  </p>
                   <button
                     type="button"
-                    onClick={() => handleChoosePet(hatchedPet.id)}
-                    className="rounded-full bg-white px-6 py-2 text-sm font-extrabold text-emerald-700 shadow-sm transition hover:bg-emerald-100 active:scale-95"
+                    onClick={() =>
+                      state.stars < SECRET_EGG_COST
+                        ? notify(`You need ${SECRET_EGG_COST - state.stars} more stars for the egg.`, 'info')
+                        : setPending({ kind: 'egg' })
+                    }
+                    aria-disabled={state.stars < SECRET_EGG_COST}
+                    className={`btn-chunky mx-auto mt-5 min-h-14 w-full max-w-xs text-xl ${state.stars < SECRET_EGG_COST ? 'btn-paper opacity-70' : 'btn-honey'}`}
                   >
-                    Use {hatchedPet.name}
+                    <Icon name="star" size={26} /> {SECRET_EGG_COST}
                   </button>
-                ) : (
-                  <div className="rounded-full bg-white px-6 py-2 text-sm font-extrabold text-emerald-700">
-                    Current Pet ✓
-                  </div>
-                )}
-              </div>
-            ) : ownsAllPets ? (
-              <div className="flex flex-1 items-center justify-center rounded-2xl bg-emerald-50 p-6 text-center">
-                <div>
-                  <p className="text-5xl">🌟</p>
-                  <p className="mt-3 text-lg font-extrabold text-emerald-800">All Pets Unlocked!</p>
-                  <p className="mt-1 text-sm font-semibold text-emerald-600">
-                    You have collected every pet. Amazing!
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-1 flex-col items-center justify-center gap-5 text-center">
-                <div className="text-8xl">🥚</div>
-                <div>
-                  <p className="text-xl font-extrabold text-purple-900">Mysterious Egg</p>
-                  <p className="mt-1 text-sm font-semibold text-purple-500">
-                    Unlock a random hidden pet after 10 goals!
-                  </p>
-                </div>
-                {eggReward && (
-                  <motion.button
-                    type="button"
-                    whileHover={stars >= eggReward.cost ? { scale: 1.03, y: -2 } : undefined}
-                    whileTap={stars >= eggReward.cost ? { scale: 0.97 } : undefined}
-                    onClick={() => handlePurchaseReward(eggReward)}
-                    disabled={stars < eggReward.cost}
-                    className={`w-full max-w-[280px] rounded-2xl py-3.5 text-sm font-extrabold shadow-md transition ${
-                      stars >= eggReward.cost
-                        ? 'bg-gradient-to-r from-violet-400 to-pink-400 text-white hover:shadow-lg'
-                        : 'cursor-not-allowed bg-slate-200 text-slate-400'
-                    }`}
-                  >
-                    {stars >= eggReward.cost
-                      ? `✨ Hatch Egg for ${eggReward.cost} ⭐`
-                      : `Need ${eggReward.cost} ⭐ to hatch`}
-                  </motion.button>
-                )}
-              </div>
-            )}
-          </div>
-        </motion.div>
+                </>
+              )}
+            </div>
+          </section>
+        ) : null}
 
-        {/* ── SCREEN ENERGY SHOP ─────────────────────────────────────────── */}
-        <motion.div variants={itemVariants} className="mb-6">
-          <h2 className="mb-3 text-lg font-extrabold text-gray-800">⚡ Screen Energy Shop</h2>
-          <div className="grid grid-cols-2 gap-4">
-            {screenEnergyRewards.map((reward) => {
-              const disabled = stars < reward.cost;
-              return (
-                <motion.button
-                  key={reward.id}
-                  type="button"
-                  whileHover={!disabled ? { scale: 1.02, y: -2 } : undefined}
-                  whileTap={!disabled ? { scale: 0.97 } : undefined}
-                  onClick={() => handlePurchaseReward(reward)}
-                  className={`rounded-3xl border-2 p-5 text-left shadow-md transition ${
-                    disabled
-                      ? 'border-slate-200 bg-slate-100 text-slate-500'
-                      : 'border-yellow-200 bg-gradient-to-br from-yellow-50 to-orange-50 text-slate-900 hover:shadow-lg'
-                  }`}
-                >
-                  <div className="mb-3 text-3xl">{reward.icon}</div>
-                  <h3 className="text-base font-extrabold">{reward.name}</h3>
-                  <p className="mt-1 text-xs font-semibold text-slate-500">{reward.helperText}</p>
-                  <div className="mt-3 flex w-fit items-center gap-1.5 rounded-full bg-yellow-200 px-3 py-1.5">
-                    <span>⭐</span>
-                    <span className="text-sm font-extrabold text-yellow-900">{reward.cost}</span>
-                  </div>
-                </motion.button>
-              );
-            })}
-          </div>
-        </motion.div>
-
-        {/* ── PET LOOKS ──────────────────────────────────────────────────── */}
-        <motion.section
-          variants={itemVariants}
-          className="mb-6 rounded-3xl border-2 border-pink-200 bg-white/80 p-5 shadow-lg lg:p-6"
-        >
-          <div className="mb-5">
-            <h2 className="text-xl font-extrabold text-gray-800">✨ Pet Looks</h2>
-            <p className="mt-1 text-sm text-gray-500">
-              Unlock special styles for your pets. Each look costs {SKIN_COST} ⭐.
-            </p>
-          </div>
-
-          <div className="space-y-8">
-            {PET_ROSTER.map((rosterPet) => {
-              const skins = skinsByPet[rosterPet.id];
-              const isActivePet = activePetType === rosterPet.id;
-              const petUnlocked = unlockedPets.includes(rosterPet.id);
-              return (
-                <div key={rosterPet.id}>
-                  <div className="mb-3 flex items-center gap-2.5">
-                    <div className="relative h-9 w-9 shrink-0">
-                      <Image
-                        src={rosterPet.moodImages.happy}
-                        alt={rosterPet.name}
-                        fill
-                        className={`object-contain ${!petUnlocked ? 'grayscale opacity-50' : ''}`}
-                        sizes="36px"
-                      />
-                    </div>
-                    <h3 className="text-base font-extrabold text-gray-800">{rosterPet.name}</h3>
-                    {isActivePet && (
-                      <span className="rounded-full bg-pink-100 px-2.5 py-0.5 text-xs font-extrabold text-pink-800">
-                        Active Pet
-                      </span>
-                    )}
-                    {!petUnlocked && (
-                      <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-extrabold text-slate-500">
-                        Locked
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-                    {skins.map((skin) => {
-                      const owned = ownedSkins.includes(skin.id);
-                      const isActive = activeSkins[rosterPet.id] === skin.id;
-                      const skinLabel = skin.name.replace(` ${rosterPet.name}`, '').trim();
-                      return (
-                        <div
-                          key={skin.id}
-                          className={`flex flex-col items-center rounded-2xl border-2 p-3 text-center transition ${
-                            isActive
-                              ? 'border-pink-300 bg-gradient-to-b from-pink-50 to-violet-50 shadow-md'
-                              : owned
-                                ? 'border-violet-200 bg-violet-50'
-                                : petUnlocked
-                                  ? 'border-slate-200 bg-white hover:border-pink-200 hover:bg-pink-50/40'
-                                  : 'border-slate-100 bg-slate-50 opacity-60'
-                          }`}
+        {tab === 'screen' ? (
+          <section aria-label="Screen time">
+            <div className="surface-flat mb-3 flex items-center gap-3 p-4">
+              <Icon name="energy" size={44} />
+              <p className="text-base font-bold text-ink-soft">
+                You have <span className="font-display text-xl text-sky-600">{state.screenEnergy}</span>{' '}Screen Energy —
+                that&apos;s <span className="text-ink">{state.screenEnergy * 10} minutes</span> of weekend screen time.
+              </p>
+            </div>
+            <ul className="grid gap-3 sm:grid-cols-2">
+              {mockRewards
+                .filter((r) => r.type === 'screen-energy')
+                .map((reward) => {
+                  const best = (reward.effectAmount ?? 1) > 1;
+                  const short = state.stars < reward.cost;
+                  return (
+                    <li key={reward.id} className={`surface relative flex items-center gap-4 overflow-hidden p-4 ${best ? 'ring-4 ring-honey-200' : ''}`}>
+                      {best ? (
+                        <span className="absolute right-0 top-0 rounded-bl-2xl bg-honey-400 px-3 py-1 text-xs font-extrabold text-honey-700">Best value!</span>
+                      ) : null}
+                      <div className="relative grid h-20 w-20 shrink-0 place-items-center rounded-2xl bg-sky-50">
+                        <Icon name="energy" size={52} />
+                        <span className="absolute -bottom-1 -right-1 rounded-full bg-sky-500 px-2 font-display text-sm font-semibold text-white">×{reward.effectAmount}</span>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h2 className="font-display text-xl font-semibold text-ink">{reward.effectAmount} Screen Energy</h2>
+                        <p className="text-sm font-bold text-ink-soft">+{(reward.effectAmount ?? 1) * 10} min weekend screen time</p>
+                        <button
+                          type="button"
+                          onClick={() => (short ? notify(`You need ${reward.cost - state.stars} more stars.`, 'info') : setPending({ kind: 'energy', reward }))}
+                          aria-disabled={short}
+                          className={`btn-chunky mt-2 min-h-11 px-4 text-base ${short ? 'btn-paper opacity-70' : 'btn-honey'}`}
                         >
-                          <div
-                            className="relative mx-auto mb-2.5 w-full max-w-[88px] overflow-hidden rounded-xl"
-                            style={{ aspectRatio: '4/5' }}
-                          >
-                            <Image
-                              src={skin.imagePath}
-                              alt={skin.name}
-                              fill
-                              loading="eager"
-                              className={`object-contain ${!petUnlocked ? 'grayscale' : ''}`}
-                              sizes="88px"
-                            />
-                          </div>
-                          <p className="w-full text-xs font-extrabold leading-snug text-gray-800">
-                            {skinLabel}
-                          </p>
+                          <Icon name="star" size={20} /> {reward.cost}
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+            </ul>
+            <p className="mt-4 text-center text-xs font-bold text-ink-faint">Saving up for the big bundle gets you more time for your stars.</p>
+          </section>
+        ) : null}
+      </motion.div>
 
-                          {owned ? (
-                            isActivePet ? (
-                              <button
-                                type="button"
-                                onClick={() => handleToggleSkin(rosterPet.id, skin.id)}
-                                className={`mt-2 w-full rounded-full py-1.5 text-xs font-extrabold transition active:scale-95 ${
-                                  isActive
-                                    ? 'bg-pink-200 text-pink-900 hover:bg-pink-300'
-                                    : 'bg-violet-200 text-violet-900 hover:bg-violet-300'
-                                }`}
-                              >
-                                {isActive ? '✓ Remove' : 'Wear'}
-                              </button>
-                            ) : (
-                              <div className="mt-2 w-full rounded-full bg-slate-100 px-1 py-1.5 text-[10px] font-semibold leading-snug text-slate-500">
-                                Switch to this pet
-                              </div>
-                            )
-                          ) : petUnlocked ? (
-                            <button
-                              type="button"
-                              onClick={() => handlePurchaseSkin(skin.id)}
-                              disabled={stars < skin.cost}
-                              className="mt-2 w-full rounded-full bg-yellow-200 py-1.5 text-xs font-extrabold text-yellow-900 transition hover:bg-yellow-300 active:scale-95 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
-                            >
-                              {stars < skin.cost ? `${skin.cost} ⭐` : `Buy ${skin.cost} ⭐`}
-                            </button>
-                          ) : (
-                            <div className="mt-2 w-full rounded-full bg-slate-100 px-1 py-1.5 text-[10px] font-semibold leading-snug text-slate-400">
-                              Unlock pet first
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </motion.section>
-
-        {/* ── MY PETS ────────────────────────────────────────────────────── */}
-        <motion.section
-          variants={itemVariants}
-          className="mb-6 rounded-3xl border-2 border-pink-200 bg-white/80 p-5 shadow-lg lg:p-6"
-        >
-          <h2 className="mb-4 text-xl font-extrabold text-gray-800">My Pets</h2>
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            {PET_ROSTER.map((rosterPet) => {
-              const unlocked = unlockedPets.includes(rosterPet.id);
-              const selected = activePetType === rosterPet.id;
-              return (
-                <div
-                  key={rosterPet.id}
-                  className={`rounded-2xl border-2 p-4 text-center transition ${
-                    selected
-                      ? 'border-pink-300 bg-gradient-to-b from-pink-50 to-rose-50 shadow-md'
-                      : unlocked
-                        ? 'border-slate-200 bg-slate-50 hover:border-pink-200'
-                        : 'border-slate-200 bg-slate-100 opacity-75'
-                  }`}
-                >
-                  <div className="relative mx-auto mb-2 aspect-square w-full max-w-[120px]">
-                    <Image
-                      src={rosterPet.moodImages.happy}
-                      alt={`${rosterPet.name} pet`}
-                      fill
-                      className={`object-contain ${unlocked ? '' : 'grayscale'}`}
-                      sizes="120px"
-                    />
-                  </div>
-                  <div className="mt-1 text-base font-extrabold text-gray-800">{rosterPet.name}</div>
-                  <p className="mt-1 text-xs font-semibold leading-snug text-slate-500">
-                    {rosterPet.description}
-                  </p>
-                  <div
-                    className={`mt-2 text-xs font-extrabold ${
-                      selected ? 'text-pink-700' : unlocked ? 'text-emerald-700' : 'text-slate-500'
-                    }`}
-                  >
-                    {selected ? '✓ Current Pet' : unlocked ? 'Unlocked' : 'Locked'}
-                  </div>
-                  {unlocked && !selected ? (
-                    <button
-                      type="button"
-                      onClick={() => handleChoosePet(rosterPet.id)}
-                      className="mt-3 rounded-full bg-white px-3 py-1.5 text-xs font-extrabold text-pink-800 shadow-sm transition hover:bg-pink-50 active:scale-95"
-                    >
-                      Use Pet
-                    </button>
-                  ) : !unlocked ? (
-                    <div className="mt-3 text-xs font-bold text-slate-500">
-                      Hatch a Secret Egg to unlock
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        </motion.section>
-
-        {/* ── SHOP GUIDE ─────────────────────────────────────────────────── */}
-        <motion.div
-          variants={itemVariants}
-          className="mb-6 rounded-3xl border-2 border-yellow-200 bg-white/80 p-5 shadow-lg lg:p-6"
-        >
-          <h3 className="mb-4 text-lg font-extrabold text-gray-800">💡 Shop Guide</h3>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {[
-              { icon: '⭐', title: 'Stars', desc: 'Buy looks, screen time and eggs with stars.' },
-              { icon: '🔋', title: 'Screen Energy', desc: '1 energy = 10 minutes of weekend screen time.' },
-              { icon: '💖', title: 'Hearts', desc: 'Hearts are special and cannot be spent here.' },
-              { icon: '✨', title: 'Pet Looks', desc: 'Visual only — no effect on goals or egg progress.' },
-            ].map(({ icon, title, desc }) => (
-              <div key={title} className="rounded-2xl border border-yellow-200 bg-amber-50 p-4">
-                <p className="text-2xl">{icon}</p>
-                <p className="mt-2 text-sm font-extrabold text-gray-800">{title}</p>
-                <p className="mt-1 text-xs font-semibold leading-snug text-gray-600">{desc}</p>
-              </div>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* ── BACK HOME ──────────────────────────────────────────────────── */}
-        <motion.button
-          variants={itemVariants}
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.97 }}
-          onClick={() => router.back()}
-          className="mb-4 w-full rounded-2xl bg-gradient-to-br from-blue-300 to-blue-400 py-3.5 font-bold text-blue-900 shadow-lg transition-all hover:shadow-xl"
-        >
-          ← Back Home
-        </motion.button>
-        </motion.div>
-      </div>
-    </ChildPageFrame>
+      <ConfirmSheet
+        open={pending !== null}
+        title={pendingTitle}
+        cost={pendingCost}
+        balance={state.stars}
+        busy={buying}
+        onCancel={() => setPending(null)}
+        onConfirm={() => void confirmPurchase()}
+        note={pending?.kind === 'egg' ? 'It hatches after 10 checked quests — not straight away!' : undefined}
+        art={
+          pending?.kind === 'skin' ? (
+            <div className="relative h-36 w-32">
+              <Image src={pending.skin.imagePath} alt="" fill sizes="128px" className="object-contain" />
+            </div>
+          ) : pending?.kind === 'egg' ? (
+            <EggArt progress={0} required={10} size={84} />
+          ) : pending?.kind === 'energy' ? (
+            <Icon name="energy" size={72} />
+          ) : null
+        }
+      />
+    </div>
   );
 }
