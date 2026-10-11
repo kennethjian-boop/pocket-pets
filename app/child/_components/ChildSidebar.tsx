@@ -14,9 +14,10 @@ import {
 import { fetchChildState, type SupabaseChildState } from '@/lib/supabase-child-state';
 
 const navItems = [
-  { icon: '🏠', label: 'Home', path: '' },
-  { icon: '🛍️', label: 'Shop', path: '/shop' },
-  { icon: '👾', label: 'Boss', path: '/family' },
+  { icon: '🏡', label: 'My Pet', shortLabel: 'Home', path: '', hint: 'Your cozy home', accent: 'from-rose-100 to-amber-100' },
+  { icon: '🛍️', label: 'Magic Shop', shortLabel: 'Shop', path: '/shop', hint: 'New looks await', accent: 'from-amber-100 to-yellow-100' },
+  { icon: '🐉', label: 'Family Boss', shortLabel: 'Boss', path: '/family', hint: 'Team up together', accent: 'from-violet-100 to-sky-100' },
+  { icon: '🎮', label: 'Pet Catch', shortLabel: 'Play', path: '/pet-catch', hint: 'Catch some magic', accent: 'from-emerald-100 to-teal-100' },
 ];
 
 function getHref(childId: string, path: string) {
@@ -27,30 +28,26 @@ function isActive(pathname: string, href: string) {
   return pathname === href;
 }
 
-function ChildNavItems({ childId }: { childId: string }) {
+function ChildNavItems({ childId, compact = false }: { childId: string; compact?: boolean }) {
   const pathname = usePathname();
-
   return (
     <>
-      {navItems.map(({ icon, label, path }) => {
-        const href = getHref(childId, path);
+      {navItems.map((item) => {
+        const href = getHref(childId, item.path);
         const active = isActive(pathname, href);
-
         return (
           <Link
             key={href}
             href={href}
-            className={`flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-extrabold transition-all active:scale-95 ${
-              active
-                ? 'bg-gradient-to-r from-pink-100 via-violet-100 to-sky-100 text-slate-950 shadow-sm ring-1 ring-white/80'
-                : 'text-slate-600 hover:bg-white/75 hover:text-slate-900'
-            }`}
+            aria-current={active ? 'page' : undefined}
+            className={`group flex items-center rounded-2xl border transition-all duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 active:scale-[0.98] ${compact ? 'min-h-[66px] flex-col justify-center gap-1 px-1 py-2 text-center' : 'min-h-[68px] gap-3 px-3 py-2.5'} ${active ? `border-white bg-gradient-to-r ${item.accent} text-slate-900 shadow-sm` : 'border-transparent bg-white/40 text-slate-600 hover:border-white/90 hover:bg-white/90 hover:text-slate-900'}`}
           >
-            <span className="text-lg" aria-hidden="true">
-              {icon}
+            <span className={`${compact ? 'text-2xl' : 'grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white/70 text-2xl'} transition-transform group-hover:scale-110`} aria-hidden="true">{item.icon}</span>
+            <span className="min-w-0">
+              <span className={`block font-black leading-tight ${compact ? 'text-[11px] sm:text-xs' : 'text-sm'}`}>{compact ? item.shortLabel : item.label}</span>
+              {!compact && <span className="mt-1 block text-[11px] font-semibold text-slate-500">{item.hint}</span>}
             </span>
-            <span>{label}</span>
-            {active && <span className="ml-auto h-2 w-2 rounded-full bg-pink-400" />}
+            {active && !compact && <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-violet-400" aria-hidden="true" />}
           </Link>
         );
       })}
@@ -60,8 +57,8 @@ function ChildNavItems({ childId }: { childId: string }) {
 
 function BrandBlock() {
   return (
-    <Link href="/" className="flex items-center gap-2.5">
-      <span className="text-2xl" aria-hidden="true">
+    <Link href="/" className="group flex items-center gap-2.5 focus-visible:outline-2 focus-visible:outline-violet-500">
+      <span className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-rose-200 via-amber-100 to-violet-200 text-2xl shadow-sm transition-transform group-hover:-rotate-6" aria-hidden="true">
         🐾
       </span>
       <span className="text-lg font-extrabold tracking-tight text-slate-900">
@@ -74,15 +71,15 @@ function BrandBlock() {
 export function ChildSidebar({ childId }: { childId: string }) {
   return (
     <>
-      <aside className="hidden w-56 shrink-0 flex-col border-r border-white/70 bg-white/80 shadow-sm backdrop-blur-xl md:sticky md:top-0 md:flex md:h-screen">
+      <aside className="hidden w-64 shrink-0 flex-col border-r border-violet-100/80 bg-gradient-to-b from-white/95 via-rose-50/90 to-violet-50/95 shadow-sm backdrop-blur-xl md:sticky md:top-0 md:flex md:h-screen">
         <div className="border-b border-white/70 px-5 py-5">
           <BrandBlock />
-          <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-violet-400">
-            Kids&apos; Quest
+          <p className="mt-3 rounded-2xl bg-white/65 px-3 py-2 text-xs font-black tracking-wide text-violet-700">
+            ✨ Your magical adventure
           </p>
         </div>
 
-        <nav className="flex-1 space-y-1 px-3 py-4">
+        <nav aria-label="Your adventure" className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-4">
           <ChildNavItems childId={childId} />
         </nav>
 
@@ -97,7 +94,7 @@ export function ChildSidebar({ childId }: { childId: string }) {
         </div>
       </aside>
 
-      <header className="sticky top-0 z-30 border-b border-white/70 bg-white/90 px-3 py-3 shadow-sm backdrop-blur-xl md:hidden">
+      <header className="sticky top-0 z-30 border-b border-white/70 bg-gradient-to-r from-rose-50/95 via-white/95 to-violet-50/95 px-3 py-3 shadow-sm backdrop-blur-xl md:hidden">
         <div className="flex items-center justify-between gap-3 px-1">
           <BrandBlock />
         </div>
@@ -110,8 +107,8 @@ export function ChildSidebar({ childId }: { childId: string }) {
           </Link>
           <LogoutButton inline className="flex min-h-10 w-full items-center justify-center px-3 py-2 text-center" />
         </div>
-        <nav className="mt-3 grid grid-cols-3 gap-2">
-          <ChildNavItems childId={childId} />
+        <nav aria-label="Your adventure" className="mt-3 grid grid-cols-4 gap-1.5 sm:gap-2">
+          <ChildNavItems childId={childId} compact />
         </nav>
       </header>
     </>
