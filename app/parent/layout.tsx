@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 export default function ParentLayout({ children }: { children: React.ReactNode }) {
   return (
     <ParentPinGate>
-      <div className="flex h-dvh overflow-hidden bg-[#f8f5fb]">
+      <div className="flex h-[calc(100dvh-var(--demo-strip,0px))] overflow-hidden bg-[#f8f5fb]">
         <ParentSidebar />
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {children}

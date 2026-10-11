@@ -44,3 +44,4 @@ next-env.d.ts
 
 # QA screenshots
 /qa-shots/
+/.next-demo/

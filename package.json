@@ -12,7 +12,8 @@
     "qa:mock": "node scripts/qa/mock-supabase.mjs",
     "qa:dev": "node scripts/qa/dev-against-mock.mjs",
     "qa:capture": "node scripts/qa/capture.mjs qa-shots",
-    "qa:flows": "node scripts/qa/flows.mjs"
+    "qa:flows": "node scripts/qa/flows.mjs",
+    "demo": "node scripts/demo.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

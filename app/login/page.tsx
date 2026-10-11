@@ -2,12 +2,13 @@
 
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getSupabaseBrowserClient, hasSupabaseBrowserEnv } from '@/lib/supabase-browser';
+import { getSupabaseBrowserClient, hasSupabaseBrowserEnv, isDemoMode } from '@/lib/supabase-browser';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const demo = isDemoMode();
+  const [email, setEmail] = useState(demo ? 'family@demo.pocketpets' : '');
+  const [password, setPassword] = useState(demo ? 'demo' : '');
   const [errorMessage, setErrorMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -54,6 +55,11 @@ export default function LoginPage() {
             Pocket <span className="text-berry-500">Pets</span>
           </h1>
           <p className="mt-1 text-sm font-bold text-ink-soft">Sign in to visit your family pets.</p>
+          {demo ? (
+            <p className="mt-3 rounded-2xl bg-plum-50 px-3 py-2 text-sm font-bold text-plum-700">
+              Preview with a sample family — just tap Sign in. Nothing here touches the real app.
+            </p>
+          ) : null}
         </div>
 
         <form onSubmit={handleSubmit} className="mt-6 grid gap-4">

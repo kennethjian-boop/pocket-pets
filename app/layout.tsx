@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Fredoka, Nunito } from "next/font/google";
 import { AuthGate } from "@/components/AuthGate";
 import { MotionProvider } from "@/components/MotionProvider";
+import { DemoStrip } from "@/components/DemoStrip";
 import "./globals.css";
 
 const fredoka = Fredoka({
@@ -36,8 +37,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${fredoka.variable} ${nunito.variable}`}>
+    <html
+      lang="en"
+      className={`${fredoka.variable} ${nunito.variable}`}
+      style={{ ["--demo-strip" as string]: process.env.NEXT_PUBLIC_DEMO_MODE === "1" ? "28px" : "0px" }}
+    >
       <body className="min-h-dvh bg-paper font-sans text-ink">
+        <DemoStrip />
         <MotionProvider>
           <AuthGate>{children}</AuthGate>
         </MotionProvider>

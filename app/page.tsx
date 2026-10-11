@@ -185,7 +185,7 @@ export default function LandingPage() {
             type="button"
             onClick={() => void logOut()}
             disabled={busy}
-            className="min-h-11 rounded-full bg-white/60 px-4 text-sm font-extrabold text-ink-soft backdrop-blur"
+            className="min-h-11 rounded-full bg-white/85 px-4 text-sm font-extrabold text-ink-soft shadow-soft backdrop-blur"
           >
             {busy ? 'Logging out…' : 'Log out of Pocket Pets'}
           </button>
