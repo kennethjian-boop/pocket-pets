@@ -1,5 +1,7 @@
 # UI / UX Principles
 
+> **Update (Oct 2026):** Persistence is now Supabase-authoritative and child navigation uses a docked bottom tab bar. See [ARCHITECTURE_CURRENT.md](ARCHITECTURE_CURRENT.md) and the open questions in [ECONOMY_DECISIONS_NEEDED.md](ECONOMY_DECISIONS_NEEDED.md) where this page disagrees.
+
 This document defines the visual and experience direction for Pocket Pets.
 
 The app has two different users:

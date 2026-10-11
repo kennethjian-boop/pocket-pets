@@ -20,15 +20,15 @@ export type MoodDecayResult = {
 export const petMoodImages: Record<PetType, Record<PetMood, string>> = {
   bubbo: {
     neutral: '/pets/bubbo/moods/neutral.png',
-    happy: '/pets/bubbo/moods/happy.png',
+    happy: '/pets/bubbo/clean/happy.png',
     sad: '/pets/bubbo/moods/sad.png',
     sleep: '/pets/bubbo/moods/sleepy.png',
   },
   luna: {
-    neutral: '/pets/luna/moods/neutral.png',
-    happy: '/pets/luna/moods/happy.png',
-    sad: '/pets/luna/moods/sad.png',
-    sleep: '/pets/luna/moods/sleepy.png',
+    neutral: '/pets/luna/clean/neutral.png',
+    happy: '/pets/luna/clean/happy.png',
+    sad: '/pets/luna/clean/sad.png',
+    sleep: '/pets/luna/clean/sleepy.png',
   },
   mochi: {
     neutral: '/pets/mochi/neutral.png',

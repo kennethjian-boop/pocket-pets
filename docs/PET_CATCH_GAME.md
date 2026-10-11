@@ -37,18 +37,9 @@ Score cannot go below 0.
 The game should start easier with fewer falling items.
 More items should appear toward the end of the round.
 
-## Star Reward After Game
-Final score converts into Star currency:
-
-- Score > 50: 5 Stars
-- Score > 70: 10 Stars
-- Score > 100: 15 Stars
-- Score > 130: 20 Stars
-
-Use the highest eligible reward only.
-
-Example:
-Score 115 = 15 Stars, not 5 + 10 + 15.
+## Rewards
+None. Pet Catch is fun-only (owner decision, Oct 2026): the final score is shown with a
+personal best kept on the device, and no stars, hearts or other currency are awarded.
 
 ## Important MVP Rules
 - Hearts are spent to start the game.

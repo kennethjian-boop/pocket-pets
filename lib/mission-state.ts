@@ -1,6 +1,7 @@
 import { PET_ROSTER, getPetByChildId, type Child, type PetRosterItem } from '@/lib/mock-data';
 import { ensureFreshStartLocalReset } from '@/lib/fresh-start-reset';
 import { normalizeScreenEnergy } from '@/lib/screen-energy';
+import { markPoopCleanedBy } from '@/lib/poop-rules';
 import { SKIN_ROSTER, VALID_SKIN_IDS, type PetType, type SkinId } from '@/lib/pet-skins';
 import {
   applyMoodDecay,
@@ -1452,7 +1453,10 @@ export function mergeWithDefaultChildState(
     lastActionTimestamps: resetForNewDay
       ? defaults.lastActionTimestamps
       : { ...defaults.lastActionTimestamps, ...stored?.lastActionTimestamps },
-    poopEvents: reconcilePoopEvents(normalizePoopEvents(stored?.poopEvents), new Date()),
+    poopEvents: markPoopCleanedBy(
+      reconcilePoopEvents(normalizePoopEvents(stored?.poopEvents), new Date()),
+      resetForNewDay ? 0 : stored?.lastActionTimestamps?.clean
+    ),
     careResetDate: resetForNewDay ? defaults.careResetDate : stored?.careResetDate ?? defaults.careResetDate,
     patHeartAwarded: resetForNewDay ? false : stored?.patHeartAwarded ?? defaults.patHeartAwarded,
     goalsDate: resetGoalsForNewDay ? defaults.goalsDate : stored?.goalsDate ?? defaults.goalsDate,
@@ -1487,9 +1491,10 @@ export function saveChildDashboardState(
     activeSkins: updates.activeSkins ?? current.activeSkins,
     dailyActionCounts: updates.dailyActionCounts ?? current.dailyActionCounts,
     lastActionTimestamps: updates.lastActionTimestamps ?? current.lastActionTimestamps,
-    poopEvents: updates.poopEvents
-      ? reconcilePoopEvents(updates.poopEvents, new Date())
-      : current.poopEvents,
+    poopEvents: markPoopCleanedBy(
+      updates.poopEvents ? reconcilePoopEvents(updates.poopEvents, new Date()) : current.poopEvents,
+      (updates.lastActionTimestamps ?? current.lastActionTimestamps).clean
+    ),
     careResetDate: updates.careResetDate ?? current.careResetDate,
     patHeartAwarded: updates.patHeartAwarded ?? current.patHeartAwarded,
     goalsDate: updates.goalsDate ?? current.goalsDate,

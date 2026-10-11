@@ -1,386 +1,229 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
-import Image from 'next/image';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { motion, AnimatePresence, type Variants } from 'framer-motion';
-import { LogoutButton } from '@/components/AuthGate';
-import { readParentPin, writeParentPin } from '@/lib/parent-pin';
-import { fetchParentSettings } from '@/lib/supabase-parent-settings';
+import { AnimatePresence, motion } from 'framer-motion';
+import { Icon } from '@/components/ui/Icon';
+import { PetSprite } from '@/components/child/PetSprite';
+import { Hills, PALETTES, Sky, useDayPhase } from '@/components/child/Scenery';
+import { PinPad } from '@/components/PinPad';
+import { PET_ROSTER, mockChildren, type Child } from '@/lib/mock-data';
+import { mergeWithDefaultChildState, readChildDashboardState } from '@/lib/mission-state';
+import { fetchChildState } from '@/lib/supabase-child-state';
+import { getSupabaseBrowserClient, hasSupabaseBrowserEnv } from '@/lib/supabase-browser';
+import type { PetType } from '@/lib/pet-skins';
 
-const containerVariants: Variants = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { staggerChildren: 0.1, delayChildren: 0.15 } },
+const PARENT_PIN_SESSION_KEY = 'pocket-pets-parent-pin-unlocked';
+
+type PlayerView = { pet: PetType; skinId: string | null; stars: number; source: 'cache' | 'live' };
+
+const PLAYER_STYLE: Record<string, { card: string; banner: string; glow: string }> = {
+  'child-ansel': {
+    card: 'from-sky-100 via-white to-honey-100',
+    banner: 'btn-sky',
+    glow: '#7ec6fb',
+  },
+  'child-thea': {
+    card: 'from-berry-100 via-white to-plum-100',
+    banner: 'btn-berry',
+    glow: '#ff8fae',
+  },
 };
 
-const itemVariants: Variants = {
-  hidden: { opacity: 0, y: 18 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: 'easeOut' } },
-};
+function readCachedPlayer(child: Child): PlayerView | null {
+  const stored = readChildDashboardState(child.id);
+  if (!stored) return null;
+  const state = mergeWithDefaultChildState(child, stored);
+  const pet = state.activePetId as PetType;
+  return { pet, skinId: state.activeSkins[pet], stars: state.stars, source: 'cache' };
+}
 
-const features = [
-  { icon: '⭐', label: 'Complete Goals' },
-  { icon: '💖', label: 'Care & Play' },
-  { icon: '👾', label: 'Family Boss' },
-  { icon: '🎁', label: 'Earn Rewards' },
-];
+function usePlayers() {
+  const [players, setPlayers] = useState<Record<string, PlayerView | null>>({});
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      await Promise.resolve();
+      if (cancelled) return;
+      setPlayers(Object.fromEntries(mockChildren.map((c) => [c.id, readCachedPlayer(c)])));
+      // Read-only fetch: the landing page never writes child state.
+      const live = await Promise.all(mockChildren.map((c) => fetchChildState(c)));
+      if (cancelled) return;
+      setPlayers((current) => {
+        const next = { ...current };
+        live.forEach((remote, i) => {
+          const child = mockChildren[i];
+          if (remote) {
+            next[child.id] = {
+              pet: remote.equippedPet,
+              skinId: remote.equippedSkinByPet[remote.equippedPet] ?? null,
+              stars: remote.stars,
+              source: 'live',
+            };
+          } else if (!next[child.id]) {
+            const fallback = mergeWithDefaultChildState(child, null);
+            next[child.id] = { pet: fallback.activePetId as PetType, skinId: null, stars: fallback.stars, source: 'cache' };
+          }
+        });
+        return next;
+      });
+      setLoaded(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return { players, loaded };
+}
 
-const bottomFeatures = [
-  { icon: '📋', title: 'Build Habits', desc: 'Complete daily goals and build positive routines.' },
-  { icon: '🏆', title: 'Team Up', desc: 'Work together in family boss battles.' },
-  { icon: '🥚', title: 'Unlock Pets', desc: 'Hatch secret eggs and discover companions.' },
-  { icon: '🎁', title: 'Earn Rewards', desc: 'Trade stars for screen time and surprises.' },
-];
-
-const players = [
-  {
-    id: 'child-ansel',
-    name: 'Ansel',
-    petImage: '/pets/bubbo/moods/happy.png',
-    petAlt: 'Bubbo',
-    gradient: 'from-amber-100 via-yellow-200 to-amber-300',
-    border: 'border-amber-300',
-    badge: '⭐',
-    badgeBg: 'bg-amber-50 border border-amber-200',
-    nameColor: 'text-amber-900',
-    btnClass: 'bg-amber-400 text-amber-950 hover:bg-amber-500',
-  },
-  {
-    id: 'child-thea',
-    name: 'Thea',
-    petImage: '/pets/luna/moods/happy.png',
-    petAlt: 'Luna',
-    gradient: 'from-pink-100 via-rose-200 to-pink-300',
-    border: 'border-pink-300',
-    badge: '🌸',
-    badgeBg: 'bg-pink-50 border border-pink-200',
-    nameColor: 'text-pink-900',
-    btnClass: 'bg-pink-400 text-white hover:bg-pink-500',
-  },
-];
+function PlayerCard({ child, view, index }: { child: Child; view: PlayerView | null; index: number }) {
+  const style = PLAYER_STYLE[child.id] ?? PLAYER_STYLE['child-ansel'];
+  const petName = view ? PET_ROSTER.find((p) => p.id === view.pet)?.name : null;
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 24 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.1 + index * 0.12, type: 'spring', stiffness: 200, damping: 22 }}
+    >
+      <Link
+        href={`/child/${child.id}`}
+        className={`group relative flex h-full flex-col items-center overflow-hidden rounded-[2rem] border-[3px] border-white bg-gradient-to-b ${style.card} px-2 pb-3 pt-4 shadow-pop transition active:scale-[0.97] sm:px-4 sm:pb-5 sm:pt-6`}
+        aria-label={`Play as ${child.name}${petName ? ` with ${petName}` : ''}`}
+      >
+        <div
+          className="absolute left-1/2 top-[38%] h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-50 blur-2xl transition group-hover:opacity-80 sm:h-56 sm:w-56"
+          style={{ background: style.glow }}
+          aria-hidden="true"
+        />
+        <div className="relative h-[clamp(130px,30dvh,230px)] w-full">
+          <div className="absolute inset-x-[14%] bottom-[4%] h-[14%] rounded-[50%] bg-white/80" aria-hidden="true" />
+          {view ? (
+            <PetSprite
+              pet={view.pet}
+              skinId={view.skinId}
+              mood="happy"
+              eager
+              sizes="(min-width: 640px) 260px, 45vw"
+              className="h-full w-full transition duration-300 group-hover:-translate-y-1 group-hover:scale-105"
+            />
+          ) : (
+            <div className="grid h-full place-items-center text-plum-300">
+              <Icon name="paw" size={56} className="animate-pulse" />
+            </div>
+          )}
+        </div>
+        <h2 className="relative mt-1 font-display text-3xl font-semibold text-ink sm:text-4xl">{child.name}</h2>
+        <p className="relative h-5 text-sm font-bold text-ink-soft">{petName ? `with ${petName}` : ' '}</p>
+        <span className={`btn-chunky ${style.banner} relative mt-3 min-h-12 w-full max-w-[220px] px-3 text-lg sm:min-h-14 sm:text-xl`}>
+          Let&apos;s go!
+        </span>
+      </Link>
+    </motion.div>
+  );
+}
 
 export default function LandingPage() {
   const router = useRouter();
+  const phase = useDayPhase();
+  const { players } = usePlayers();
   const [pinOpen, setPinOpen] = useState(false);
-  const [pin, setPin] = useState('');
-  const [pinError, setPinError] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
 
-  const openPin = () => {
-    setPin('');
-    setPinError(false);
-    setPinOpen(true);
-    // focus input after modal mounts
-    setTimeout(() => inputRef.current?.focus(), 80);
-  };
-
-  const closePin = () => {
-    setPinOpen(false);
-    setPin('');
-    setPinError(false);
-  };
-
-  const submitPin = async () => {
-    if (pin === readParentPin()) {
-      closePin();
-      router.push('/parent/dashboard');
-      return;
-    }
-    // Local check failed — the PIN may have been changed on another device.
-    // Check Supabase as a fallback and update localStorage if it matches.
-    const remote = await fetchParentSettings();
-    if (remote && pin === remote.pin) {
-      writeParentPin(remote.pin);
-      closePin();
-      router.push('/parent/dashboard');
-    } else {
-      setPinError(true);
-      setPin('');
-      setTimeout(() => inputRef.current?.focus(), 40);
-    }
+  const logOut = async () => {
+    setBusy(true);
+    if (hasSupabaseBrowserEnv()) await getSupabaseBrowserClient().auth.signOut();
+    window.sessionStorage.removeItem(PARENT_PIN_SESSION_KEY);
+    router.replace('/login');
   };
 
   return (
-    <div className="relative min-h-screen overflow-x-hidden bg-gradient-to-br from-purple-50 via-pink-50 to-sky-100">
-
-      {/* Background blobs */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -left-28 -top-16 h-[520px] w-[520px] rounded-full bg-violet-200/50 blur-3xl" />
-        <div className="absolute -right-24 top-10 h-[480px] w-[480px] rounded-full bg-pink-200/50 blur-3xl" />
-        <div className="absolute bottom-48 left-1/3 h-80 w-80 rounded-full bg-blue-200/40 blur-3xl" />
-        <div className="absolute bottom-16 right-1/3 h-72 w-72 rounded-full bg-violet-200/35 blur-3xl" />
+    <div className="relative min-h-dvh overflow-x-hidden">
+      <div className="pointer-events-none fixed inset-0 -z-10" aria-hidden="true">
+        <Sky variant={phase} className="absolute inset-0" />
+        <Hills palette={PALETTES[phase]} className="absolute inset-x-0 bottom-0 h-[30vh] w-full" />
       </div>
 
-      {/* ─────────────────────────────────────────────────────────
-          MASTER CENTERED COLUMN
-          flex + items-center drives centering — not mx-auto —
-          so it works even when * { margin:0 } overrides auto margins.
-      ───────────────────────────────────────────────────────── */}
-      <div className="relative z-10 flex flex-col items-center">
-
-        {/* ===== NAV ===== */}
-        <nav className="flex w-full max-w-4xl flex-col gap-3 px-4 py-5 sm:px-10 md:flex-row md:items-center md:justify-between md:py-6">
-          <div className="flex items-center gap-3">
-            <span className="text-4xl">🐾</span>
-            <span className="text-2xl font-extrabold tracking-tight text-slate-800 sm:text-3xl">
-              Pocket <span className="text-pink-500">Pets</span>
+      <div className="pt-safe mx-auto flex min-h-dvh max-w-3xl flex-col px-4 pb-6 sm:px-8">
+        <header className="flex items-center justify-between py-3 sm:py-5">
+          <div className="flex items-center gap-2 text-plum-600">
+            <Icon name="paw" size={30} />
+            <span className={`font-display text-2xl font-semibold ${phase === 'night' ? 'text-white' : 'text-ink'}`}>
+              Pocket <span className="text-berry-400">Pets</span>
             </span>
           </div>
-
-          <div className="grid w-full grid-cols-2 gap-2 md:w-auto md:flex md:items-center md:gap-3">
-          <motion.button
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.97 }}
-            onClick={openPin}
-            className="flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm backdrop-blur-sm transition hover:bg-white hover:shadow-md sm:text-base md:px-5"
+          <button
+            type="button"
+            onClick={() => setPinOpen(true)}
+            className="flex min-h-11 items-center gap-2 rounded-full bg-white/85 px-4 text-sm font-extrabold text-ink shadow-soft backdrop-blur transition active:scale-95"
           >
-            <span>👨‍👩‍👧</span>
-            <span className="hidden sm:inline">Parent Dashboard</span>
-            <span className="sm:hidden">Parents</span>
-          </motion.button>
-          <LogoutButton inline className="flex min-h-11 items-center justify-center px-4 py-3 text-sm sm:text-base" />
-          </div>
-        </nav>
+            <Icon name="lock" size={20} /> Grown-ups
+          </button>
+        </header>
 
-        {/* ===== HERO ===== */}
-        <motion.section
-          className="flex w-full max-w-2xl flex-col items-center px-8 pb-6 pt-4 text-center sm:px-10 sm:pt-8"
-          variants={containerVariants}
-          initial="hidden"
-          animate="visible"
-        >
-          {/* Sparkle row */}
-          <div className="pointer-events-none mb-3 flex justify-center gap-7 select-none">
-            {['✦', '✨', '✦', '✨', '✦'].map((s, i) => (
-              <motion.span
-                key={i}
-                className="text-2xl text-yellow-400/80"
-                animate={{ y: [0, -10, 0], opacity: [0.5, 1, 0.5] }}
-                transition={{ duration: 3.2 + i * 0.35, repeat: Infinity, ease: 'easeInOut', delay: i * 0.45 }}
-              >
-                {s}
-              </motion.span>
-            ))}
-          </div>
-
-          {/* Floating paw */}
-          <motion.div
-            className="mb-4"
-            animate={{ y: [0, -14, 0] }}
-            transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
-          >
-            <span className="inline-block text-7xl drop-shadow-lg sm:text-8xl">🐾</span>
-          </motion.div>
-
+        <main className="flex flex-1 flex-col justify-center py-4">
           <motion.h1
-            variants={itemVariants}
-            className="mb-3 text-6xl font-extrabold tracking-tight text-slate-900 drop-shadow-sm sm:text-7xl"
+            className={`text-center font-display text-4xl font-semibold leading-tight sm:text-5xl short:text-3xl ${phase === 'night' ? 'text-white' : 'text-ink'}`}
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
           >
-            Pocket <span className="text-pink-500">Pets</span>
+            Who&apos;s playing today?
           </motion.h1>
+          <p className={`mt-2 text-center text-base font-bold ${phase === 'night' ? 'text-plum-100' : 'text-ink-soft'}`}>
+            Tap your pet to start your adventure
+          </p>
+          <div className="mt-6 grid grid-cols-2 gap-3 sm:mt-10 sm:gap-6 short:mt-4">
+            {mockChildren.map((child, index) => (
+              <PlayerCard key={child.id} child={child} view={players[child.id] ?? null} index={index} />
+            ))}
+          </div>
+        </main>
 
-          <motion.p
-            variants={itemVariants}
-            className="mb-8 text-lg leading-relaxed text-slate-600 sm:text-xl"
+        <footer className="flex justify-center pt-2">
+          <button
+            type="button"
+            onClick={() => void logOut()}
+            disabled={busy}
+            className="min-h-11 rounded-full bg-white/85 px-4 text-sm font-extrabold text-ink-soft shadow-soft backdrop-blur"
           >
-            Raise magical pets, build habits, and grow together as a family.
-          </motion.p>
+            {busy ? 'Logging out…' : 'Log out of Pocket Pets'}
+          </button>
+        </footer>
+      </div>
 
-          {/* Feature pills */}
-          <motion.div variants={itemVariants} className="flex flex-wrap justify-center gap-2.5">
-            {features.map(({ icon, label }) => (
-              <div
-                key={label}
-                className="flex items-center gap-1.5 rounded-full border border-white/90 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm backdrop-blur-sm sm:px-5 sm:text-base"
-              >
-                <span>{icon}</span>
-                <span>{label}</span>
-              </div>
-            ))}
-          </motion.div>
-        </motion.section>
-
-        {/* ===== WHO IS PLAYING ===== */}
-        <motion.section
-          className="flex w-full max-w-2xl flex-col items-center px-8 py-10 sm:px-10"
-          variants={containerVariants}
-          initial="hidden"
-          animate="visible"
-        >
-          {/* Section heading */}
-          <motion.div variants={itemVariants} className="mb-8">
-            <div className="inline-flex items-center gap-3 rounded-full border border-white/80 bg-white/75 px-7 py-3 text-lg font-bold text-slate-700 shadow-sm backdrop-blur-sm">
-              <span>✨</span>
-              <span>Who is playing today?</span>
-              <span>✨</span>
-            </div>
-          </motion.div>
-
-          {/* Player cards */}
-          <div className="grid w-full grid-cols-1 gap-5 sm:grid-cols-2">
-            {players.map((player) => (
-              <motion.div key={player.id} variants={itemVariants}>
-                <Link href={`/child/${player.id}`} className="block">
-                  <motion.div
-                    whileHover={{ scale: 1.04, y: -6 }}
-                    whileTap={{ scale: 0.97 }}
-                    className={`relative overflow-hidden rounded-[36px] border-2 ${player.border} bg-gradient-to-b ${player.gradient} px-7 py-7 shadow-2xl transition-shadow hover:shadow-[0_28px_56px_-8px_rgba(0,0,0,0.16)]`}
-                  >
-                    {/* Highlight sheen */}
-                    <div className="pointer-events-none absolute inset-0 rounded-[36px] bg-gradient-to-t from-white/0 via-white/10 to-white/45" />
-                    {/* Corner glow */}
-                    <div className="pointer-events-none absolute -bottom-10 -right-10 h-44 w-44 rounded-full bg-white/30 blur-2xl" />
-                    <div className="pointer-events-none absolute -left-8 -top-8 h-32 w-32 rounded-full bg-white/30 blur-2xl" />
-
-                    {/* Badge */}
-                    <div className={`absolute right-5 top-5 flex h-10 w-10 items-center justify-center rounded-2xl text-lg shadow-sm ${player.badgeBg}`}>
-                      {player.badge}
-                    </div>
-
-                    {/* Pet image */}
-                    <div className="relative mx-auto mb-4" style={{ width: 200, height: 200 }}>
-                      <Image
-                        src={player.petImage}
-                        alt={player.petAlt}
-                        fill
-                        loading="eager"
-                        className="object-contain drop-shadow-xl"
-                        sizes="200px"
-                      />
-                    </div>
-
-                    {/* Child name */}
-                    <h2 className={`mb-5 text-center text-4xl font-extrabold tracking-tight ${player.nameColor}`}>
-                      {player.name}
-                    </h2>
-
-                    {/* CTA */}
-                    <div className={`flex items-center justify-center gap-2 rounded-2xl px-7 py-3 text-base font-bold shadow-md transition ${player.btnClass}`}>
-                      <span>Enter World</span>
-                      <span className="text-lg font-black">›</span>
-                    </div>
-                  </motion.div>
-                </Link>
-              </motion.div>
-            ))}
-          </div>
-        </motion.section>
-
-        {/* ===== BOTTOM FEATURE CARDS ===== */}
-        <motion.div
-          className="w-full max-w-2xl px-8 pb-16 sm:px-10"
-          variants={containerVariants}
-          initial="hidden"
-          animate="visible"
-        >
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            {bottomFeatures.map(({ icon, title, desc }) => (
-              <motion.div
-                key={title}
-                variants={itemVariants}
-                className="rounded-[22px] border border-white/80 bg-white/70 p-4 text-center shadow-sm backdrop-blur-sm sm:p-5"
-              >
-                <div className="mb-2 text-2xl">{icon}</div>
-                <h3 className="mb-1 text-sm font-bold text-slate-800 sm:text-base">{title}</h3>
-                <p className="text-xs leading-relaxed text-slate-500">{desc}</p>
-              </motion.div>
-            ))}
-          </div>
-
-          <motion.p variants={itemVariants} className="mt-10 text-center text-sm font-medium text-slate-400 sm:text-base">
-            Made with 💚 for families
-          </motion.p>
-        </motion.div>
-
-      </div>{/* end master column */}
-
-      {/* ===== PIN MODAL ===== */}
       <AnimatePresence>
-        {pinOpen && (
-          <motion.div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
-          >
-            {/* Backdrop */}
-            <div
-              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
-              onClick={closePin}
-            />
-
-            {/* Modal card */}
+        {pinOpen ? (
+          <motion.div className="fixed inset-0 z-50 flex items-end justify-center p-3 sm:items-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <button type="button" aria-label="Close" className="absolute inset-0 bg-ink/45 backdrop-blur-[2px]" onClick={() => setPinOpen(false)} />
             <motion.div
-              className="relative w-full max-w-xs rounded-[28px] border border-white/80 bg-white p-8 shadow-2xl"
-              initial={{ scale: 0.9, y: 16, opacity: 0 }}
-              animate={{ scale: 1, y: 0, opacity: 1 }}
-              exit={{ scale: 0.9, y: 12, opacity: 0 }}
-              transition={{ duration: 0.22, ease: 'easeOut' }}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Parent check"
+              className="surface relative w-full max-w-sm p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+              initial={{ y: 40, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 40, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 380, damping: 32 }}
             >
-              <div className="mb-1 text-center text-3xl">🔒</div>
-              <h2 className="mb-1 text-center text-xl font-extrabold text-slate-900">
-                Parent Check
-              </h2>
-              <p className="mb-6 text-center text-sm text-slate-500">
-                Enter the parent code to continue.
-              </p>
-
-              <input
-                ref={inputRef}
-                type="password"
-                inputMode="numeric"
-                maxLength={4}
-                value={pin}
-                onChange={(e) => {
-                  const val = e.target.value.replace(/\D/g, '').slice(0, 4);
-                  setPin(val);
-                  setPinError(false);
+              <button
+                type="button"
+                onClick={() => setPinOpen(false)}
+                className="absolute right-3 top-3 grid h-11 w-11 place-items-center rounded-full text-ink-soft hover:bg-ink/5"
+                aria-label="Close"
+              >
+                <Icon name="close" size={22} />
+              </button>
+              <PinPad
+                onSuccess={() => {
+                  window.sessionStorage.setItem(PARENT_PIN_SESSION_KEY, 'yes');
+                  router.push('/parent/dashboard');
                 }}
-                onKeyDown={(e) => e.key === 'Enter' && submitPin()}
-                placeholder="••••"
-                className="mb-2 w-full rounded-2xl border-2 border-slate-200 bg-slate-50 px-4 py-3 text-center text-2xl font-bold tracking-[0.5em] text-slate-900 outline-none transition focus:border-pink-400 focus:bg-white"
               />
-
-              <AnimatePresence>
-                {pinError && (
-                  <motion.p
-                    className="mb-4 text-center text-sm font-semibold text-rose-500"
-                    initial={{ opacity: 0, y: -4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.15 }}
-                  >
-                    Oops, that is not the parent code.
-                  </motion.p>
-                )}
-              </AnimatePresence>
-
-              {!pinError && <div className="mb-4" />}
-
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={closePin}
-                  className="flex-1 rounded-2xl border border-slate-200 bg-slate-100 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-200 active:scale-95"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={submitPin}
-                  disabled={pin.length !== 4}
-                  className="flex-1 rounded-2xl bg-pink-400 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-pink-500 active:scale-95 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
-                >
-                  Enter
-                </button>
-              </div>
             </motion.div>
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
-
     </div>
   );
 }

@@ -2,12 +2,13 @@
 
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getSupabaseBrowserClient, hasSupabaseBrowserEnv } from '@/lib/supabase-browser';
+import { getSupabaseBrowserClient, hasSupabaseBrowserEnv, isDemoMode } from '@/lib/supabase-browser';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const demo = isDemoMode();
+  const [email, setEmail] = useState(demo ? 'family@demo.pocketpets' : '');
+  const [password, setPassword] = useState(demo ? 'demo' : '');
   const [errorMessage, setErrorMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -37,53 +38,63 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-amber-50 via-pink-50 to-blue-50 px-5 py-10">
-      <section className="w-full max-w-sm rounded-[32px] border border-white/80 bg-white/90 p-7 shadow-xl">
+    <main className="relative grid min-h-dvh place-items-center overflow-hidden px-5 py-10">
+      <div className="pointer-events-none fixed inset-0 -z-10 bg-gradient-to-b from-sky-100 via-plum-50 to-cream" aria-hidden="true" />
+      <section className="surface w-full max-w-sm p-7">
         <div className="text-center">
-          <div className="text-4xl font-black text-pink-400">PP</div>
-          <h1 className="mt-3 text-3xl font-extrabold text-slate-900">Pocket Pets</h1>
-          <p className="mt-2 text-sm font-semibold text-slate-500">
-            Log in to visit your family pets.
-          </p>
+          <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-plum-50 text-plum-500">
+            <svg viewBox="0 0 48 48" width="40" height="40" aria-hidden="true">
+              <ellipse cx="24" cy="31" rx="9" ry="7.5" fill="currentColor" />
+              <circle cx="13" cy="21" r="4" fill="currentColor" />
+              <circle cx="20" cy="13.5" r="4" fill="currentColor" />
+              <circle cx="28" cy="13.5" r="4" fill="currentColor" />
+              <circle cx="35" cy="21" r="4" fill="currentColor" />
+            </svg>
+          </div>
+          <h1 className="mt-3 font-display text-3xl font-semibold text-ink">
+            Pocket <span className="text-berry-500">Pets</span>
+          </h1>
+          <p className="mt-1 text-sm font-bold text-ink-soft">Sign in to visit your family pets.</p>
+          {demo ? (
+            <p className="mt-3 rounded-2xl bg-plum-50 px-3 py-2 text-sm font-bold text-plum-700">
+              Preview with a sample family — just tap Sign in. Nothing here touches the real app.
+            </p>
+          ) : null}
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-7 grid gap-4">
+        <form onSubmit={handleSubmit} className="mt-6 grid gap-4">
           <label className="grid gap-1.5">
-            <span className="text-sm font-bold text-slate-700">Email</span>
+            <span className="text-sm font-extrabold text-ink">Email</span>
             <input
               type="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               autoComplete="email"
               required
-              className="rounded-2xl border-2 border-slate-100 bg-slate-50 px-4 py-3 text-base font-semibold text-slate-900 outline-none transition focus:border-pink-300 focus:bg-white"
+              className="min-h-12 rounded-2xl border-2 border-plum-100 bg-white px-4 text-base font-bold text-ink outline-none transition focus:border-plum-400"
             />
           </label>
 
           <label className="grid gap-1.5">
-            <span className="text-sm font-bold text-slate-700">Password</span>
+            <span className="text-sm font-extrabold text-ink">Password</span>
             <input
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               autoComplete="current-password"
               required
-              className="rounded-2xl border-2 border-slate-100 bg-slate-50 px-4 py-3 text-base font-semibold text-slate-900 outline-none transition focus:border-pink-300 focus:bg-white"
+              className="min-h-12 rounded-2xl border-2 border-plum-100 bg-white px-4 text-base font-bold text-ink outline-none transition focus:border-plum-400"
             />
           </label>
 
           {errorMessage ? (
-            <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-600">
+            <p role="alert" className="rounded-2xl bg-berry-50 px-4 py-3 text-sm font-bold text-berry-700">
               {errorMessage}
             </p>
           ) : null}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="mt-1 rounded-2xl bg-pink-400 px-5 py-3 text-base font-extrabold text-white shadow-sm transition hover:bg-pink-500 active:scale-[0.99] disabled:cursor-wait disabled:bg-slate-200 disabled:text-slate-400"
-          >
-            {loading ? 'Logging in...' : 'Log In'}
+          <button type="submit" disabled={loading} className="btn-chunky btn-plum mt-1 min-h-14 px-5 text-lg">
+            {loading ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
       </section>

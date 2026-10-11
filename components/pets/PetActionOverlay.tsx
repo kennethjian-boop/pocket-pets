@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion';
 import type { CareActionType } from '@/lib/mission-state';
+import { Icon } from '@/components/ui/Icon';
 
 export type PetReaction = {
   id: number;
@@ -37,7 +38,7 @@ function FeedOverlay() {
         }}
         transition={{ duration: 0.82, ease: 'easeOut' }}
       >
-        &#127850;
+        <Icon name="feed" size={44} />
       </motion.span>
 
       {sparkles.map((sparkle, index) => (
@@ -75,7 +76,7 @@ function PatOverlay() {
         }}
         transition={{ duration: 0.9, ease: 'easeOut' }}
       >
-        &#128075;
+        <Icon name="pat" size={48} />
       </motion.span>
 
       {hearts.map((heart, index) => (
@@ -87,7 +88,7 @@ function PatOverlay() {
           animate={{ opacity: [0, 1, 0], y: [12, -24, -46], scale: [0.6, 1.15, 0.9] }}
           transition={{ duration: 0.8, delay: heart.delay, ease: 'easeOut' }}
         >
-          &hearts;
+          <Icon name="heart" size={24} />
         </motion.span>
       ))}
     </>
@@ -115,7 +116,7 @@ function CleanOverlay() {
         }}
         transition={{ duration: 0.92, ease: 'easeInOut' }}
       >
-        &#129529;
+        <Icon name="clean" size={48} />
       </motion.span>
 
       {bubbles.map((bubble, index) => (

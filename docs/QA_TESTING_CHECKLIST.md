@@ -172,9 +172,9 @@ Use the active root `app/` routes. Do not test legacy `src/` pages.
 
 Daily limits:
 
-- Feed: 2 times per day
+- Feed: 4 times per day
 - Pat: 5 times per day
-- Clean: 1 time per day
+- Clean: 3 times per day
 
 ## 8. Parent Goal Verification Test
 

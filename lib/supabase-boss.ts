@@ -110,6 +110,63 @@ export async function fetchBossState(): Promise<BossBattleState | null> {
   return data ? toSupabaseBossState(data) : null;
 }
 
+// ─── Versioned row access (boss transactions) ────────────────────────────────
+
+export type BossRowSnapshot = BossStateRow;
+
+export function bossRowToState(row: BossStateRow): BossBattleState {
+  return toSupabaseBossState(row);
+}
+
+export async function fetchBossRow(): Promise<BossStateRow | null> {
+  const supabase = getSupabaseBrowserClient();
+  const { data, error } = await supabase
+    .from('family_boss_state')
+    .select(SELECT)
+    .eq('id', 'active')
+    .maybeSingle<BossStateRow>();
+  if (error) throw new Error(error.message);
+  return data ?? null;
+}
+
+/** Writes only if nobody (another parent device or a goal verification) changed the boss first. */
+export async function updateBossRowIfUnchanged(
+  current: BossStateRow,
+  patch: Partial<BossStateRow>
+): Promise<BossStateRow | null> {
+  const supabase = getSupabaseBrowserClient();
+  const { data, error } = await supabase
+    .from('family_boss_state')
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq('id', 'active')
+    .eq('updated_at', current.updated_at)
+    .select(SELECT)
+    .returns<BossStateRow[]>();
+  if (error) throw new Error(error.message);
+  return data && data.length > 0 ? data[0] : null;
+}
+
+export function bossStateToRowPatch(state: BossBattleState): Partial<BossStateRow> {
+  return {
+    boss_id: state.bossId,
+    boss_name: state.bossName,
+    boss_theme: state.bossTheme,
+    boss_description: state.bossDescription,
+    boss_image: state.bossImage,
+    max_hp: state.maxHp,
+    current_hp: state.currentHp,
+    started_at: state.startedAt,
+    week_label: state.weekLabel,
+    is_defeated: state.isDefeated,
+    reward_claimed: state.rewardClaimed,
+    rewards_by_child: {
+      ...state.rewardsByChild,
+      [FAMILY_BOSS_REWARD_KEY]: getSharedBossReward(state),
+    },
+    attacks: state.attacks,
+  };
+}
+
 // ─── Upsert (fire-and-forget from boss-battle) ────────────────────────────────
 
 export async function upsertBossState(state: BossBattleState): Promise<void> {

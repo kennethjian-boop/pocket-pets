@@ -1,5 +1,7 @@
 # App Rules
 
+> **Update (Oct 2026):** Persistence is now Supabase-authoritative and child navigation uses a docked bottom tab bar. See [ARCHITECTURE_CURRENT.md](ARCHITECTURE_CURRENT.md) and the open questions in [ECONOMY_DECISIONS_NEEDED.md](ECONOMY_DECISIONS_NEEDED.md) where this page disagrees.
+
 This document is the source of truth for Pocket Pets MVP rules.
 
 Do not break these rules during implementation.
@@ -125,7 +127,7 @@ Care actions should be fun pet interactions, not reward farming systems.
 
 Feed / Pat / Clean must not:
 
-- Give stars except when a care action crosses a mood reward threshold
+- Give stars or hearts
 - Give Screen Energy
 - Damage the boss
 - Increase Secret Egg progress
@@ -135,8 +137,6 @@ Feed / Pat / Clean must not:
 Care actions may:
 
 - Improve pet comfort by 10
-- Award 1 star when mood crosses into 80 or more
-- Award 3 stars when mood crosses into 100
 - Trigger animations
 - Trigger speech bubbles
 - Trigger hearts, sparkles, bubbles, or small visual effects
@@ -144,9 +144,9 @@ Care actions may:
 
 Current anti-spam rules:
 
-- Feed: max 2 times per day
-- Pat: max 5 times per day
-- Clean: max 1 time per day
+- Feed: max 4 times per day (60 s cooldown)
+- Pat: max 5 times per day (20 s cooldown)
+- Clean: max 3 times per day (120 s cooldown)
 - Cooldowns prevent rapid repeated clicking
 
 When the daily limit is reached, show a friendly message only.
@@ -632,4 +632,4 @@ Real-life goal completed
 -> Child earns progress  
 -> Pet / shop / boss system responds
 
-Feed / Pat / Clean are emotional interactions with limited mood-threshold star rewards.
+Feed / Pat / Clean are emotional interactions only: they change mood, never balances.
