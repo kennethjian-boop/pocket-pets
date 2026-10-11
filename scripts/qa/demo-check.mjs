@@ -68,6 +68,22 @@ check('Parent can verify a goal in demo mode', true);
 await page.waitForTimeout(500);
 await shot('demo-parent');
 
+// Pet Adventure Run from the Play Room (short QA round; allowed in demo builds only).
+await page.goto(`${base}/child/child-ansel/play`, { waitUntil: 'networkidle' });
+await page.getByRole('link', { name: /Play Adventure Run/ }).click();
+await page.getByRole('button', { name: /^Play Easy for 2/ }).waitFor({ timeout: 15000 });
+await page.goto(`${base}/child/child-ansel/adventure-run?qaSeconds=6&qaSeed=7`, { waitUntil: 'networkidle' });
+const heartsText = async () => Number((await page.locator('header').getByText(/hearts?$/).first().textContent().catch(() => '0'))?.replace(/\D/g, '') || 0);
+const heartsBefore = await heartsText();
+await page.getByRole('button', { name: /^Play Easy for 2/ }).click();
+await page.waitForSelector('[data-run-arena][data-phase="playing"]', { timeout: 15000 });
+await page.keyboard.press('Space');
+await page.waitForSelector('[data-run-arena][data-phase="finished"]', { timeout: 20000 });
+await shot('demo-adventure-run');
+const heartsAfter = await heartsText();
+check('Adventure Run plays to the results screen in demo mode', (await page.getByText(/New best score!|What a run!/).count()) > 0);
+check('Adventure Run charged 2 sample hearts', heartsBefore === 0 || heartsBefore - heartsAfter === 2, `${heartsBefore} → ${heartsAfter}`);
+
 check('No request left the app (no real Supabase, no third parties)', foreign.length === 0, foreign.slice(0, 3).join(', '));
 check('No page errors', errors.length === 0, errors.slice(0, 2).join(' | '));
 await browser.close();

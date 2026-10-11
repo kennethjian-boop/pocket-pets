@@ -205,19 +205,21 @@ export function AdventureCards({ childId, boss, hearts }: { childId: string; bos
       </Link>
 
       <Link
-        href={`/child/${childId}/pet-catch`}
+        href={`/child/${childId}/play`}
         className="surface group relative flex flex-col overflow-hidden p-3 transition active:scale-[0.98]"
+        aria-label="Play Room: Adventure Run and Pet Catch"
       >
         <div className="absolute inset-0 bg-gradient-to-b from-mint-200/60 to-white/0" aria-hidden="true" />
         <div className="relative flex items-center justify-between">
-          <span className="font-display text-lg font-semibold text-ink">Pet Catch</span>
+          <span className="font-display text-lg font-semibold text-ink">Play Room</span>
           <Icon name="chevron-right" size={18} className="text-ink-faint" />
         </div>
-        <div className="relative my-1 grid h-20 place-items-center">
-          <Icon name="play" size={64} className="transition group-hover:-rotate-6" />
+        <div className="relative my-1 flex h-20 items-center justify-center gap-2">
+          <Icon name="run" size={52} className="transition group-hover:-rotate-6" />
+          <Icon name="play" size={52} className="transition group-hover:rotate-6" />
         </div>
         <p className={`relative flex items-center gap-1 text-xs font-extrabold ${canPlay ? 'text-mint-700' : 'text-ink-faint'}`}>
-          <Icon name="heart" size={16} /> {canPlay ? '2 hearts to play' : 'Need 2 hearts'}
+          <Icon name="heart" size={16} /> {canPlay ? '2 games · 2 hearts each' : 'Need 2 hearts'}
         </p>
       </Link>
     </div>

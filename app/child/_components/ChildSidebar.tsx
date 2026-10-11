@@ -19,7 +19,7 @@ const NAV: { icon: IconName; label: string; hint: string; path: string }[] = [
   { icon: 'home', label: 'Home', hint: 'Visit your pet', path: '' },
   { icon: 'shop', label: 'Shop', hint: 'Looks, eggs & more', path: '/shop' },
   { icon: 'boss', label: 'Boss', hint: 'Team battle', path: '/family' },
-  { icon: 'play', label: 'Play', hint: 'Pet Catch game', path: '/pet-catch' },
+  { icon: 'play', label: 'Play', hint: 'Play Room games', path: '/play' },
 ];
 
 const PARENT_PIN_SESSION_KEY = 'pocket-pets-parent-pin-unlocked';
@@ -28,7 +28,9 @@ function useNavItems(childId: string) {
   const pathname = usePathname();
   return NAV.map((item) => {
     const href = `/child/${childId}${item.path}`;
-    return { ...item, href, active: pathname === href };
+    // The Play tab stays highlighted inside either game.
+    const inPlay = item.path === '/play' && ['/pet-catch', '/adventure-run'].some((p) => pathname === '/child/' + childId + p);
+    return { ...item, href, active: pathname === href || inPlay };
   });
 }
 
@@ -278,7 +280,7 @@ function sceneForPath(pathname: string, childId: string): SceneVariant | 'auto' 
   const base = `/child/${childId}`;
   if (pathname.startsWith(`${base}/shop`)) return 'golden';
   if (pathname.startsWith(`${base}/family`)) return 'storm';
-  if (pathname.startsWith(`${base}/pet-catch`)) return 'meadow';
+  if (pathname.startsWith(`${base}/pet-catch`) || pathname.startsWith(`${base}/play`) || pathname.startsWith(`${base}/adventure-run`)) return 'meadow';
   return 'auto';
 }
 
