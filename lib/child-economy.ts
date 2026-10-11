@@ -155,9 +155,15 @@ export function spendHearts(child: Child, amount: number) {
   return commit(child, (row) => planHeartSpend(row, amount));
 }
 
-/** Pet Catch round reward — existing behaviour, see lib/pet-catch-rules.ts. */
-export function awardGameStars(child: Child, stars: number) {
-  return commit(child, (row) => planCurrencyDelta(row, { stars }));
+/** Re-read a child from Supabase after a server-side transaction and refresh the cache. */
+export async function refreshChildFromServer(child: Child): Promise<ChildDashboardState> {
+  if (!hasSupabaseBrowserEnv()) return localState(child);
+  try {
+    const row = await fetchChildRow(child);
+    return row ? cacheRow(child, row) : localState(child);
+  } catch {
+    return localState(child);
+  }
 }
 
 // ─── Parent-side adjustments ─────────────────────────────────────────────────

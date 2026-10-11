@@ -10,7 +10,7 @@
  * only granted by the device that successfully flips reward_claimed.
  */
 import type { Child } from '@/lib/mock-data';
-import { hasSupabaseBrowserEnv } from '@/lib/supabase-browser';
+import { getSupabaseBrowserClient, hasSupabaseBrowserEnv } from '@/lib/supabase-browser';
 import {
   addBossAttack,
   getBossRewardForChild,
@@ -33,7 +33,7 @@ import {
   type BossRowSnapshot,
 } from '@/lib/supabase-boss';
 import { runOptimisticUpdate, type PlanResult } from '@/lib/optimistic-update';
-import { adjustCurrencies } from '@/lib/child-economy';
+import { adjustCurrencies, refreshChildFromServer } from '@/lib/child-economy';
 import type { ChildDashboardState } from '@/lib/mission-state';
 
 export type BossResult =
@@ -129,32 +129,53 @@ export function startNextBoss() {
 
 export type ClaimResult = BossResult & {
   childStates: Record<string, ChildDashboardState>;
-  failedChildren: string[];
+  /** True when the server reports the prizes had already been delivered (retry/second device). */
+  alreadyClaimed: boolean;
 };
 
+const CLAIM_MIGRATION_MESSAGE =
+  'Prize claiming needs the October database update (migration 202610110001). Nothing was changed.';
+
 /**
- * Flip reward_claimed first (only one device can win), then grant each child's
- * reward with a version-checked currency delta.
+ * Atomic, idempotent claim via the claim_boss_victory_rewards() database function:
+ * the claimed flag and every child's prize commit together or not at all, and
+ * repeats return already_claimed without paying again. There is deliberately no
+ * client-side fallback when Supabase is configured, because a multi-row payout
+ * cannot be made atomic from the browser.
  */
 export async function claimVictoryRewards(children: Child[]): Promise<ClaimResult> {
-  const flip = await mutateBoss((state) => {
-    if (!state.isDefeated) return { error: 'The boss is not defeated yet.' };
-    if (state.rewardClaimed) return { error: 'Victory rewards were already claimed.' };
-    return { patch: { ...state, rewardClaimed: true } };
-  });
-  if (!flip.ok) return { ...flip, childStates: {}, failedChildren: [] };
-
-  const childStates: Record<string, ChildDashboardState> = {};
-  const failedChildren: string[] = [];
-  for (const child of children) {
-    const reward = getBossRewardForChild(flip.state, child.id);
-    const result = await adjustCurrencies(child, {
-      stars: reward.stars,
-      hearts: reward.hearts,
-      screenEnergy: reward.screenEnergy,
-    });
-    childStates[child.id] = result.state;
-    if (!result.ok && result.code !== 'noop') failedChildren.push(child.name);
+  if (!hasSupabaseBrowserEnv()) {
+    // Local development without Supabase: same rules against the local cache.
+    const state = readBossBattleState();
+    if (!state.isDefeated) return { ok: false, message: 'The boss is not defeated yet.', state, childStates: {}, alreadyClaimed: false };
+    if (state.rewardClaimed) return { ok: false, message: 'Victory prizes were already delivered.', state, childStates: {}, alreadyClaimed: true };
+    const childStates: Record<string, ChildDashboardState> = {};
+    for (const child of children) {
+      const reward = getBossRewardForChild(state, child.id);
+      childStates[child.id] = (await adjustCurrencies(child, { stars: reward.stars, hearts: reward.hearts, screenEnergy: reward.screenEnergy })).state;
+    }
+    writeBossBattleState({ ...state, rewardClaimed: true });
+    return { ok: true, state: readBossBattleState(), childStates, alreadyClaimed: false };
   }
-  return { ...flip, childStates, failedChildren };
+
+  const { data, error } = await getSupabaseBrowserClient().rpc('claim_boss_victory_rewards');
+  const state = await loadBossState();
+  const childStates: Record<string, ChildDashboardState> = {};
+  for (const child of children) childStates[child.id] = await refreshChildFromServer(child);
+
+  if (error) {
+    const missing = error.code === 'PGRST202' || /could not find the function/i.test(error.message);
+    return {
+      ok: false,
+      message: missing ? CLAIM_MIGRATION_MESSAGE : /not defeated/i.test(error.message) ? 'The boss is not defeated yet.' : `Couldn't give prizes: ${error.message}`,
+      state,
+      childStates,
+      alreadyClaimed: false,
+    };
+  }
+  const result = (data ?? {}) as { changed?: boolean; already_claimed?: boolean };
+  if (result.already_claimed) {
+    return { ok: false, message: 'Victory prizes were already delivered.', state, childStates, alreadyClaimed: true };
+  }
+  return { ok: true, state, childStates, alreadyClaimed: false };
 }

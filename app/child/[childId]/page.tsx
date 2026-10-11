@@ -242,10 +242,8 @@ export default function ChildHome() {
 
     busyRef.current = true;
     setBusy(type);
-    let starReward = 0;
     try {
       const result = await performCareActionAuthoritatively(child, type);
-      starReward = result.starReward;
       applyState(result.childState);
       setCare({
         counts: result.careState.actionCounts,
@@ -264,9 +262,6 @@ export default function ChildHome() {
     }
 
     showReaction(type, false, type === 'clean' && hasPoop ? 'All tidy again!' : REACTION_SPEECH[type]);
-    if (starReward > 0) {
-      notify(`${petName} is so happy! +${starReward} star${starReward === 1 ? '' : 's'}`, 'celebrate');
-    }
   };
 
   const reactionAnimation =

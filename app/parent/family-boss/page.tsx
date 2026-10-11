@@ -71,9 +71,8 @@ export default function FamilyBossControlsPage() {
     setBusy(null);
     family.setBoss(result.state);
     Object.entries(result.childStates).forEach(([id, state]) => family.setChildState(id, state));
-    if (!result.ok) toast.show(result.message, 'error');
-    else if (result.failedChildren.length) toast.show(`Claimed, but couldn't add prizes for ${result.failedChildren.join(', ')}. Add them on Rewards.`, 'error');
-    else toast.show('Victory prizes delivered to everyone!');
+    if (result.ok) toast.show('Victory prizes delivered to everyone!');
+    else toast.show(result.message, result.alreadyClaimed ? 'info' : 'error');
   };
 
   return (

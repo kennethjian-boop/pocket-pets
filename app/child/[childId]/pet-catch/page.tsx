@@ -10,12 +10,11 @@ import { Celebration } from '@/components/child/Celebration';
 import { useChildState } from '@/app/child/_components/ChildStateProvider';
 import { PET_ROSTER } from '@/lib/mock-data';
 import type { PetType } from '@/lib/pet-skins';
-import { awardGameStars, spendHearts } from '@/lib/child-economy';
+import { spendHearts } from '@/lib/child-economy';
 import {
   PET_CATCH_DURATION_SECONDS,
   PET_CATCH_HEART_COST,
   getPetCatchPhase,
-  getPetCatchStarsEarned,
 } from '@/lib/pet-catch-rules';
 
 type ItemKind = 'star' | 'candy' | 'gem' | 'rainbow' | 'bomb';
@@ -99,8 +98,8 @@ export default function PetCatchGamePage() {
   const [timeLeft, setTimeLeft] = useState(PET_CATCH_DURATION_SECONDS);
   const [petX, setPetX] = useState(50);
   const [facing, setFacing] = useState<1 | -1>(1);
-  const [starsEarned, setStarsEarned] = useState<number | null>(null);
-  const [rewardError, setRewardError] = useState<string | null>(null);
+  // Fun-only: a personal best kept on this device. The game never pays out currency.
+  const [roundResult, setRoundResult] = useState<{ best: number; newBest: boolean } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   const arenaRef = useRef<HTMLDivElement>(null);
@@ -124,12 +123,16 @@ export default function PetCatchGamePage() {
     keys.current = { left: false, right: false };
     if (rewardGranted.current) return;
     rewardGranted.current = true;
-    const earned = getPetCatchStarsEarned(scoreRef.current);
-    setStarsEarned(earned);
-    const result = await awardGameStars(child, earned);
-    applyState(result.state);
-    if (!result.ok) setRewardError("We couldn't save your stars just now. Show a grown-up this screen.");
-  }, [applyState, child]);
+    const key = `pocket-pets-catch-best-${child.id}`;
+    let previous = 0;
+    try {
+      previous = Number(window.localStorage.getItem(key) ?? 0) || 0;
+      if (scoreRef.current > previous) window.localStorage.setItem(key, String(scoreRef.current));
+    } catch {
+      /* storage unavailable */
+    }
+    setRoundResult({ best: Math.max(previous, scoreRef.current), newBest: scoreRef.current > previous && scoreRef.current > 0 });
+  }, [child.id]);
 
   // ── Game loop ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -257,8 +260,7 @@ export default function PetCatchGamePage() {
     setScore(0);
     setPetX(50);
     setTimeLeft(PET_CATCH_DURATION_SECONDS);
-    setStarsEarned(null);
-    setRewardError(null);
+    setRoundResult(null);
     setCountdown(3);
     setPhase('countdown');
   };
@@ -438,9 +440,9 @@ export default function PetCatchGamePage() {
           {phase === 'finished' ? (
             <motion.div key="done" className="absolute inset-0 z-40 grid place-items-center overflow-y-auto bg-white/50 p-4 backdrop-blur-[3px] short:p-2" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <div className="relative w-full max-w-sm">
-                <Celebration show={starsEarned !== null} burstKey={`end-${starsEarned}`} />
+                <Celebration show={roundResult !== null} burstKey={`end-${roundResult?.best}`} />
                 <motion.div className="surface p-5 text-center" initial={{ scale: 0.85, y: 20 }} animate={{ scale: 1, y: 0 }} transition={{ type: 'spring', stiffness: 260, damping: 20 }}>
-                  <h2 className="font-display text-3xl font-semibold text-ink">Time&apos;s up!</h2>
+                  <h2 className="font-display text-3xl font-semibold text-ink">{roundResult?.newBest ? 'New best score!' : 'Time’s up!'}</h2>
                   <p className="text-sm font-bold text-ink-soft">{petName} had so much fun!</p>
                   <div className="mt-4 grid grid-cols-2 gap-2">
                     <div className="rounded-2xl bg-plum-50 py-3">
@@ -448,13 +450,12 @@ export default function PetCatchGamePage() {
                       <p className="font-display text-4xl font-semibold text-ink">{score}</p>
                     </div>
                     <div className="rounded-2xl bg-honey-50 py-3">
-                      <p className="text-xs font-extrabold uppercase tracking-wider text-honey-600">Stars won</p>
+                      <p className="text-xs font-extrabold uppercase tracking-wider text-honey-600">Best</p>
                       <p className="flex items-center justify-center gap-1 font-display text-4xl font-semibold text-honey-700">
-                        <Icon name="star" size={34} /> {starsEarned ?? '…'}
+                        <Icon name="trophy" size={34} /> {roundResult?.best ?? score}
                       </p>
                     </div>
                   </div>
-                  {rewardError ? <p className="mt-3 rounded-2xl bg-berry-50 px-3 py-2 text-sm font-bold text-berry-700">{rewardError}</p> : null}
                   <div className="mt-4 grid gap-2">
                     <button
                       type="button"

@@ -100,8 +100,8 @@ export default function SettingsPage() {
         <section className="flex items-start gap-3 rounded-2xl border border-plum-100 bg-plum-50/50 p-4 text-sm font-bold text-ink-soft">
           <Icon name="paw" size={22} className="mt-0.5 shrink-0 text-plum-400" />
           <p>
-            Stars come from verified goals, your rewards, boss victories, pet-care mood milestones and Pet Catch. Children
-            can never verify goals or hand out boss prizes themselves.
+            Stars come only from goals you verify, your rewards and boss victories. Pet care and Pet Catch are just for
+            fun. Children can never verify goals or hand out boss prizes themselves.
           </p>
         </section>
       </ParentBody>

@@ -24,7 +24,7 @@ await resetMock('default');
   await shot(page, 'catch-countdown');
   await page.waitForTimeout(14000);
   await shot(page, 'catch-playing');
-  await page.getByText("Time's up!").waitFor({ timeout: 70000 });
+  await page.getByText(/Time.s up!|New best score!/).waitFor({ timeout: 70000 });
   await page.waitForTimeout(1600);
   await shot(page, 'catch-results');
   await ctx.close();

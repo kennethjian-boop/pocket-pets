@@ -142,7 +142,7 @@ const flows = {
       after.children.find((c) => c.child_id === id).stars - before.children.find((c) => c.child_id === id).stars;
     check('Victory prizes delivered once to Ansel', gain('child-ansel') === 20, `+${gain('child-ansel')}`);
     check('Victory prizes delivered once to Thea', gain('child-thea') === 20, `+${gain('child-thea')}`);
-    check('Second device is told prizes were already claimed', (await b.getByText(/already claimed/i).count()) > 0);
+    check('Second device is told prizes were already delivered', (await b.getByText(/already delivered/i).count()) > 0);
     await ctxA.close();
     await ctxB.close();
   },
@@ -182,11 +182,12 @@ const flows = {
     await page.mouse.down();
     await page.waitForTimeout(1500);
     await page.mouse.up();
-    await page.getByText("Time's up!").waitFor({ timeout: 75000 });
+    await page.getByText(/Time.s up!|New best score!/).waitFor({ timeout: 75000 });
     await page.waitForTimeout(1500);
     const after = await childRow('child-ansel');
     const gained = after.stars - before.stars;
-    check('Round end awards stars once (existing tiers)', [5, 10, 15, 20].includes(gained), `+${gained}`);
+    check('Pet Catch never awards stars', gained === 0, `stars changed by ${gained}`);
+    check('Results show a fun-only best score', (await page.getByText('Best').count()) > 0);
     await ctx.close();
   },
 };

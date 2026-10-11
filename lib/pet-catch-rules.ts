@@ -1,19 +1,9 @@
 /**
- * Pet Catch economy, unchanged from the current implementation.
- *
- * NOTE (owner decision pending): this conflicts with APP_RULES ("mini-games must not
- * generate stars") and with docs/PET_CATCH_GAME.md's tier table. It is preserved
- * as-is until the economy is reconciled. See docs/ECONOMY_DECISIONS_NEEDED.md.
+ * Pet Catch rules (owner decision, Oct 2026): a round costs 2 hearts and lasts
+ * 60 seconds. The game is fun-only — it never awards stars or any other currency.
  */
 export const PET_CATCH_DURATION_SECONDS = 60;
 export const PET_CATCH_HEART_COST = 2;
-
-export function getPetCatchStarsEarned(score: number) {
-  if (score > 75) return 20;
-  if (score > 50) return 15;
-  if (score > 25) return 10;
-  return 5;
-}
 
 /** Speed and spawn ramp from the original game loop, by elapsed seconds. */
 export function getPetCatchPhase(elapsedSeconds: number) {

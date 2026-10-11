@@ -10,7 +10,7 @@ import {
   type EconomyPatch,
   type EconomyRow,
 } from '../lib/economy-rules.ts';
-import { getPetCatchStarsEarned } from '../lib/pet-catch-rules.ts';
+import * as petCatchRules from '../lib/pet-catch-rules.ts';
 
 type Row = EconomyRow & { updated_at: number };
 
@@ -139,13 +139,10 @@ test('unavailable when the read fails — never writes stale data', async () => 
   assert.equal(!out.ok && out.reason, 'unavailable');
 });
 
-test('Pet Catch star tiers are unchanged (flat 5-star floor)', () => {
-  assert.equal(getPetCatchStarsEarned(0), 5);
-  assert.equal(getPetCatchStarsEarned(25), 5);
-  assert.equal(getPetCatchStarsEarned(26), 10);
-  assert.equal(getPetCatchStarsEarned(51), 15);
-  assert.equal(getPetCatchStarsEarned(76), 20);
-  assert.equal(getPetCatchStarsEarned(500), 20);
+test('Pet Catch costs 2 hearts and exposes no star payout', () => {
+  assert.equal(petCatchRules.PET_CATCH_HEART_COST, 2);
+  assert.equal(petCatchRules.PET_CATCH_DURATION_SECONDS, 60);
+  assert.equal(Object.keys(petCatchRules).some((name) => /star/i.test(name)), false);
 });
 
 import { markPoopCleanedBy } from '../lib/poop-rules.ts';
