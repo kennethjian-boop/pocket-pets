@@ -241,7 +241,7 @@ export default function RewardShop() {
                           aria-disabled={short}
                           className={`btn-chunky w-full min-h-11 text-base ${short ? 'btn-paper opacity-70' : 'btn-honey'}`}
                         >
-                          <Icon name="star" size={20} /> {skin.cost}
+                          <span className="grid h-7 w-7 place-items-center rounded-full bg-white/80"><Icon name="star" size={20} /></span> {skin.cost}
                         </button>
                       ) : (
                         <span className="flex min-h-11 items-center justify-center rounded-2xl bg-ink/5 text-sm font-extrabold text-ink-faint">Locked</span>
@@ -352,7 +352,7 @@ export default function RewardShop() {
                     aria-disabled={state.stars < SECRET_EGG_COST}
                     className={`btn-chunky mx-auto mt-5 min-h-14 w-full max-w-xs text-xl ${state.stars < SECRET_EGG_COST ? 'btn-paper opacity-70' : 'btn-honey'}`}
                   >
-                    <Icon name="star" size={26} /> {SECRET_EGG_COST}
+                    <span className="grid h-8 w-8 place-items-center rounded-full bg-white/80"><Icon name="star" size={24} /></span> {SECRET_EGG_COST}
                   </button>
                 </>
               )}
@@ -393,7 +393,7 @@ export default function RewardShop() {
                           aria-disabled={short}
                           className={`btn-chunky mt-2 min-h-11 px-4 text-base ${short ? 'btn-paper opacity-70' : 'btn-honey'}`}
                         >
-                          <Icon name="star" size={20} /> {reward.cost}
+                          <span className="grid h-7 w-7 place-items-center rounded-full bg-white/80"><Icon name="star" size={20} /></span> {reward.cost}
                         </button>
                       </div>
                     </li>

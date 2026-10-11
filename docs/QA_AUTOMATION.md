@@ -11,7 +11,16 @@ npm test
 ```
 
 Covers the economy rules, the optimistic-update retry logic (including simulated cross-device
-conflicts and double taps), Pet Catch star tiers, and the poop-clean fix.
+conflicts and double taps), Pet Catch being fun-only, the poop-clean fix, and
+`tests/sql-migrations.test.ts`, which runs the real migration SQL on PGlite (Postgres in WASM)
+to check atomic, idempotent prize claims and star-free care.
+
+## Demo (sample family, no real data)
+
+```bash
+npm run demo          # builds into .next-demo and serves http://localhost:3200
+node scripts/qa/demo-check.mjs http://localhost:3200   # end-to-end check, asserts no external requests
+```
 
 ## Running the app against the fake backend
 

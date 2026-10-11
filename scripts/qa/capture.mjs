@@ -44,7 +44,7 @@ export const ROUTES = {
   'p-settings': '/parent/settings',
 };
 
-export const VIEWPORTS = ['375x812', '390x844', '430x932', '768x1024', '1440x900'];
+export const VIEWPORTS = ['375x812', '390x844', '430x932', '768x1024', '1024x768', '1440x900'];
 
 export function fakeSession() {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');

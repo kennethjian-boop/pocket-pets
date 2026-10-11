@@ -23,17 +23,22 @@ localStorage keys are unchanged (`child-dashboard-state-*`, `daily-goals-by-chil
 ## Authoritative write paths
 
 - **Goal verification** — `verify_daily_goal_transaction` (stars, boss hit, egg progress/hatch, mood).
-- **Care actions** — `perform_care_action_transaction` (limits, cooldowns, mood, milestone stars).
+- **Care actions** — `perform_care_action_transaction` (limits, cooldowns, mood). From migration
+  `202610110001` it never changes balances (owner decision).
 - **Every other balance change** — `lib/child-economy.ts`. Each operation reads the latest
   `children` row, applies a pure rule from `lib/economy-rules.ts`, and writes only if
   `updated_at` is unchanged (`lib/optimistic-update.ts`), retrying on conflict. This
   replaced writes of absolute balances computed from a possibly stale local cache, which
   could erase a parent's award made on another device. Used by: shop purchases, Pet Catch
-  heart spend and star award, parent rewards/deductions, Screen Energy, boss prizes.
+  heart spend, parent rewards/deductions and Screen Energy. These are single-row changes, so the
+  version check makes them atomic.
 - **Boss mutations** — `lib/boss-sync.ts`, version-checked on `family_boss_state.updated_at`.
-  Victory claim flips `reward_claimed` first, so only one device can grant prizes.
+- **Victory prizes** — `claim_boss_victory_rewards()` (migration `202610110001`): one transaction
+  pays every child and sets `reward_claimed`, or nothing happens. Repeats return `already_claimed`.
+  There is no browser fallback, because a multi-row payout cannot be made atomic client-side.
 
-No database migrations were added.
+One additive migration, `202610110001_atomic_boss_claim_and_star_free_care.sql`, is included and
+tested on PGlite (`tests/sql-migrations.test.ts`). It is **not applied automatically**.
 
 ## App structure
 
@@ -54,10 +59,18 @@ No database migrations were added.
    balances or verify goals by calling the API. Today's protections are in the UI and the PIN.
 2. **Parent PIN** is a child-resistant gate, not authentication. It's stored in plain text in
    `parent_settings`, which any authenticated session can read. The default is `1234`.
-3. **Pet Catch stars are claimed by the client** (the server trusts the score).
+3. Pet Catch no longer awards anything, so there is no client-claimed currency left.
 
 A proper fix means server-side RPCs for every economy action, tighter RLS, and a separate
 parent role. That needs new migrations and a security-policy decision, so it was not done.
+
+## Demo mode and previews
+
+`NEXT_PUBLIC_DEMO_MODE=1` routes the Supabase client to an in-browser sample backend
+(`lib/demo-backend/`; data lives in that browser's localStorage). `next.config.ts` turns it on
+automatically for Vercel preview builds (not `main`/production), so PR previews never touch real
+data. Set `POCKET_PETS_PREVIEW_BACKEND=supabase` on Vercel to point previews at a staging project
+instead. `npm run demo` serves the same demo locally.
 
 ## QA tooling
 

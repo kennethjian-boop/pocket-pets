@@ -10,8 +10,11 @@ import type { NextConfig } from "next";
  * Production builds are unaffected.
  */
 const explicit = process.env.NEXT_PUBLIC_DEMO_MODE;
-const vercelPreview =
-  process.env.VERCEL_ENV === "preview" && process.env.POCKET_PETS_PREVIEW_BACKEND !== "supabase";
+const branch = process.env.VERCEL_GIT_COMMIT_REF;
+const isPreviewBuild =
+  process.env.VERCEL_ENV === "preview" ||
+  (process.env.VERCEL_ENV === undefined && Boolean(branch) && branch !== "main" && branch !== "master");
+const vercelPreview = isPreviewBuild && process.env.POCKET_PETS_PREVIEW_BACKEND !== "supabase";
 const demoMode = explicit === "1" || (explicit === undefined && vercelPreview) ? "1" : "0";
 
 const nextConfig: NextConfig = {

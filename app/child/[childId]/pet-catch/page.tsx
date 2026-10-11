@@ -7,6 +7,7 @@ import { AnimatePresence, motion, useAnimationControls } from 'framer-motion';
 import { Icon } from '@/components/ui/Icon';
 import { PetSprite } from '@/components/child/PetSprite';
 import { Celebration } from '@/components/child/Celebration';
+import { Sky } from '@/components/child/Scenery';
 import { useChildState } from '@/app/child/_components/ChildStateProvider';
 import { PET_ROSTER } from '@/lib/mock-data';
 import type { PetType } from '@/lib/pet-skins';
@@ -290,11 +291,11 @@ export default function PetCatchGamePage() {
   const timeFraction = timeLeft / PET_CATCH_DURATION_SECONDS;
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col px-3 pb-3 pt-3 sm:px-6 short:max-w-none short:pt-2 short:pb-2 lg:py-8">
+    <div className="mx-auto flex w-full max-w-3xl flex-col px-3 pb-3 pt-3 sm:px-6 short:max-w-none short:pt-2 short:pb-2 xl:py-8">
       <motion.div
         ref={arenaRef}
         data-pet-catch-arena
-        className="relative h-[max(400px,calc(100dvh-230px))] touch-none select-none overflow-hidden rounded-[2rem] border-[3px] border-white shadow-pop sm:h-[min(640px,calc(100dvh-220px))] lg:h-[min(660px,calc(100dvh-140px))] short:h-[calc(100dvh-112px)] short:min-h-[220px]"
+        className="relative h-[max(400px,calc(100dvh-230px))] touch-none select-none overflow-hidden rounded-[2rem] border-[3px] border-white shadow-pop sm:h-[min(640px,calc(100dvh-220px))] xl:h-[min(660px,calc(100dvh-140px))] short:h-[calc(100dvh-112px)] short:min-h-[220px]"
         animate={shake}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -302,7 +303,7 @@ export default function PetCatchGamePage() {
         onPointerCancel={endDrag}
         onLostPointerCapture={endDrag}
       >
-        <div className="absolute inset-0 bg-gradient-to-b from-sky-200 via-plum-50 to-cream" aria-hidden="true" />
+        <Sky variant="meadow" className="absolute inset-0" />
         <svg className="absolute inset-x-0 bottom-0 h-[24%] w-full" viewBox="0 0 400 100" preserveAspectRatio="none" aria-hidden="true">
           <path d="M0 40 C 80 10, 160 20, 230 36 S 350 20, 400 30 L400 100 L0 100 Z" fill="#c6ead0" />
           <path d="M0 62 C 90 40, 180 50, 250 60 S 360 48, 400 56 L400 100 L0 100 Z" fill="#a7dcb6" />
@@ -311,7 +312,7 @@ export default function PetCatchGamePage() {
         {/* HUD */}
         <div className="absolute inset-x-3 top-3 z-30 flex items-start justify-between gap-2">
           <div className="flex items-center gap-1.5 rounded-2xl bg-white/90 py-1.5 pl-2 pr-3.5 shadow-soft">
-            <Icon name="star" size={30} />
+            <Icon name="sparkle" size={30} />
             <span className="font-display text-3xl font-semibold tabular-nums text-ink" aria-label={`Score ${score}`}>
               {score}
             </span>
@@ -414,9 +415,16 @@ export default function PetCatchGamePage() {
                     </>
                   )}
                 </button>
-                <p className="mt-2 text-xs font-bold text-ink-faint">
-                  You have {state.hearts} {state.hearts === 1 ? 'heart' : 'hearts'} · Drag to move, or hold the arrows
-                </p>
+                {canPlay ? (
+                  <p className="mt-2 text-xs font-bold text-ink-faint">
+                    You have {state.hearts} hearts · Drag to move, or hold the arrows
+                  </p>
+                ) : (
+                  <p className="mt-2 flex items-center justify-center gap-1 text-sm font-extrabold text-berry-600">
+                    <Icon name="heart" size={18} />
+                    {PET_CATCH_HEART_COST - state.hearts === 1 ? 'One more heart to play!' : `${PET_CATCH_HEART_COST - state.hearts} more hearts to play!`}
+                  </p>
+                )}
               </div>
             </motion.div>
           ) : null}

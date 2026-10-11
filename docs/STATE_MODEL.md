@@ -155,9 +155,9 @@ type DailyActionCounts = {
 
 Current daily limits:
 
-- Feed: 2
+- Feed: 4
 - Pat: 5
-- Clean: 1
+- Clean: 3
 
 Care actions must not affect:
 
@@ -166,8 +166,8 @@ Care actions must not affect:
 - Egg progress
 - Goal completion
 
-Each successful Feed / Pat / Clean action adds 10 mood. Crossing into mood 80 or more
-awards 1 star, while crossing into mood 100 awards 3 stars.
+Each successful Feed / Pat / Clean action adds 10 mood. Care never changes stars, hearts or
+Screen Energy (migration 202610110001).
 
 Care actions may affect:
 
@@ -564,4 +564,4 @@ Real-life goal completed
 -> Child earns progress  
 -> Pet / shop / boss system responds
 
-Feed / Pat / Clean are emotional interactions with limited mood-threshold star rewards.
+Feed / Pat / Clean are emotional interactions only: they change mood, never balances.

@@ -74,9 +74,9 @@ Do not change product rules.
 - Children cannot self-verify goals.
 - Children cannot manually attack the boss.
 - Children cannot claim boss rewards.
-- Children cannot self-award hearts or Screen Energy. Stars are limited to defined reward paths, including care mood thresholds.
+- Children cannot self-award stars, hearts or Screen Energy. Stars come only from verified goals, parent rewards and boss victories.
 - Parent verification is the core source of meaningful progress.
-- Feed / Pat / Clean add 10 mood and may award stars only when crossing mood thresholds: 1 star at 80+, or 3 stars at 100.
+- Feed / Pat / Clean add 10 mood and never award stars, hearts or Screen Energy. Limits: Feed 4, Pat 5, Clean 3 per day.
 - Feed / Pat / Clean cannot generate Screen Energy.
 - Feed / Pat / Clean cannot damage the boss.
 - Feed / Pat / Clean cannot increase Secret Egg progress.
