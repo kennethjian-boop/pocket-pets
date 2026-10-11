@@ -13,7 +13,7 @@ Demo: `npm run demo` → http://localhost:3200 · `node scripts/qa/demo-check.mj
 - [x] Docs aligned (ECONOMY_DECISIONS_NEEDED now "resolved", ARCHITECTURE_CURRENT, QA_AUTOMATION)
 
 ## Last verified
-- tsc ✓ · eslint 0 errors (1 legacy warning) · npm test 18/18 · next build ✓ · qa:flows 21/21 · demo-check 8/8
+- tsc ✓ · eslint 0 errors (1 legacy warning) · npm test 18/18 · next build ✓ · qa:flows 20/20 · demo-check 8/8
 - Vercel previews are behind Vercel Authentication (owner login); content not verifiable from here.
 
 ## Owner actions before merge
