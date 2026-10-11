@@ -19,3 +19,8 @@ Demo: `npm run demo` → http://localhost:3200 · `node scripts/qa/demo-check.mj
 ## Owner actions before merge
 1. Apply migration 202610110001 (staging first). Until then prize claiming shows a "needs database update" message and care still gives stars server-side.
 2. Open the Vercel preview and confirm the dark "Preview · sample family" strip is visible before signing in.
+
+## Pet Adventure Run (branch `feature/pet-adventure-run`, PR #2 → base PR #1 branch)
+- Done: engine `lib/adventure-run-rules.ts` (+9 tests), `/play` Play Room, `/adventure-run`, nav/home integration.
+- Verified: tsc · eslint 0 errors · npm test 27/27 · build · qa:run 32/32 · qa:flows pass · demo-check 10/10.
+- QA knobs `?qaSeed`, `?qaSeconds` only in dev/demo builds.
